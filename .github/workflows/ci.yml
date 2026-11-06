@@ -28,3 +28,12 @@ jobs:
             echo "build $t"
             CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./cmd/pk3s
           done
+
+  # Every green push to main is tagged with the next patch version and
+  # released (see release.yml).
+  release:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml

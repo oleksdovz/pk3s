@@ -271,14 +271,22 @@ More complete examples are in [examples/](examples/).
 
 ## Releasing
 
+Every push to `main` that passes `CI` is released automatically: the
+`Release` workflow tags the commit with the next patch version (latest
+`vX.Y.Z` + 1, starting at `v0.1.0`), builds all targets with `make dist`
+and attaches them and `SHA256SUMS` to the GitHub release. A push of several
+commits at once produces one release, for the last commit.
+
+To bump the minor or major version, push a tag yourself; automatic tags
+continue from it:
+
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The `Release` workflow runs the tests, builds all targets with `make dist`,
-and attaches them and `SHA256SUMS` to the GitHub release (tags with a `-`,
-such as `v0.2.0-rc1`, are marked as pre-releases). `CI` runs vet, tests
-with the race detector, and a cross-compile on every push and pull request.
+Tags with a `-`, such as `v0.2.0-rc1`, are marked as pre-releases and do
+not affect the automatic numbering. `CI` runs vet, tests with the race
+detector, and a cross-compile on every push and pull request.
 
 ## License
 

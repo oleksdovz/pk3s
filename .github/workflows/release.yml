@@ -1,36 +1,67 @@
 name: Release
 
-# Push a tag like v0.1.0 to build all binaries and publish them in a
-# GitHub Release, together with SHA256SUMS.
+# Builds all binaries and publishes them in a GitHub Release with SHA256SUMS.
+#
+# - Called by CI after every green push to main: the next patch version
+#   (latest vX.Y.Z + 1, or v0.1.0 for the first one) is tagged on that commit.
+# - A manually pushed tag (e.g. v0.2.0 or v1.0.0-rc1) releases that tag; use
+#   it to bump the minor or major version. Auto tags continue from it.
 on:
+  workflow_call:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write # create the release and upload assets
+  contents: write # create the tag, the release and upload assets
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    concurrency:
+      group: release # two quick pushes must not compute the same version
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # git describe for the version string
+          fetch-depth: 0 # all tags, to compute the next version
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            # Re-run of the same commit: keep its existing tag.
+            tag=$(git tag --points-at "$GITHUB_SHA" --list 'v*' --sort=-v:refname | head -n1)
+            if [[ -z "$tag" ]]; then
+              last=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+              if [[ -z "$last" ]]; then
+                tag=v0.1.0
+              else
+                IFS=. read -r major minor patch <<<"${last#v}"
+                tag="v${major}.${minor}.$((patch + 1))"
+              fi
+            fi
+          fi
+          echo "version: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Test
         run: go test -race ./...
       - name: Build binaries
         # Linux binaries are built first and embedded into every build, so
         # `pk3s --host root@pve` works from macOS and Windows.
-        run: make dist VERSION=${GITHUB_REF_NAME}
+        run: make dist VERSION=${{ steps.version.outputs.tag }}
       - name: Check the version stamp
-        run: ./dist/pk3s-linux-amd64 version | grep -F "${GITHUB_REF_NAME}"
+        run: ./dist/pk3s-linux-amd64 version | grep -F "${{ steps.version.outputs.tag }}"
       - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }} # the tag is created on this commit
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
           files: |
             dist/pk3s-linux-amd64
             dist/pk3s-linux-arm64
