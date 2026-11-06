@@ -40,7 +40,8 @@ func (f *fakeBackend) LoadForResume(context.Context, string) (*plan.Plan, error)
 func (f *fakeBackend) NewSession(*plan.Plan, bool, func(engine.Event)) (*app.Session, error) {
 	return nil, nil
 }
-func (f *fakeBackend) StateRoot() string { return "/var/lib/pk3s" }
+func (f *fakeBackend) StateRoot() string                         { return "/var/lib/pk3s" }
+func (f *fakeBackend) LoadSpec(string) (spec.ClusterSpec, error) { return spec.ClusterSpec{}, nil }
 
 func send(t *testing.T, m Model, msgs ...tea.Msg) Model {
 	t.Helper()

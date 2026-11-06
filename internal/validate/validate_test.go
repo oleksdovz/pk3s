@@ -85,7 +85,7 @@ func TestErrors(t *testing.T) {
 		},
 			validate.Probes{DirNonEmpty: func(p string) bool { return strings.HasSuffix(p, "lab-main1") }}, "nodes.main1", "not empty"},
 		{"duplicate per-node IP", func(s *spec.ClusterSpec) {
-			s.NodeNetwork = []spec.NodeNetwork{{Node: "node2", IP: "192.168.0.51"}}
+			s.NodeNetwork = []spec.NodeNetwork{{Node: "node1", IP: "192.168.0.60"}, {Node: "node2", IP: "192.168.0.60"}}
 		}, validate.Probes{}, "nodes.node2", "assigned to both"},
 		{"bad per-node DNS", func(s *spec.ClusterSpec) {
 			s.NodeNetwork = []spec.NodeNetwork{{Node: "node1", DNS: []string{"dns.example"}}}

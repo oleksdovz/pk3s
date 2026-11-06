@@ -113,7 +113,12 @@ type Prepared struct {
 }
 
 // Prepare builds and validates a plan for a new cluster.
+// If pk3s already manages a cluster with this name, the result is an
+// update plan (diff against the deployed cluster) instead.
 func (a *App) Prepare(ctx context.Context, s spec.ClusterSpec, inv *pve.Inventory) (*Prepared, error) {
+	if (&state.Store{Root: a.Root, Cluster: s.Name}).Exists() {
+		return a.prepareUpdate(ctx, s, inv)
+	}
 	f := validate.Spec(s, inv)
 	if f.HasErrors() {
 		return &Prepared{Findings: f, Inv: inv}, nil
@@ -155,6 +160,25 @@ type Session struct {
 	Store  *state.Store
 }
 
+// Run executes the plan. When every step has finished, the node layout is
+// recorded and, for an update, the target spec and version become the
+// deployed ones.
+func (s *Session) Run(ctx context.Context) error {
+	if err := s.Engine.Run(ctx); err != nil {
+		return err
+	}
+	st, p := s.Engine.State, s.Engine.Plan
+	st.Layout = p.Records()
+	if p.Mode == plan.ModeUpdate {
+		if err := spec.Save(s.Store.Path("spec.yaml"), p.Spec); err != nil {
+			return err
+		}
+		st.K3sVersion = p.K3sVersion
+		st.Pending = nil
+	}
+	return s.Store.Save(st)
+}
+
 // Close releases the store lock.
 func (s *Session) Close() { s.Store.Unlock() }
 
@@ -170,14 +194,25 @@ func (a *App) NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (
 	}
 	var st *state.State
 	var err error
-	if resume {
+	switch {
+	case resume:
 		st, err = store.Load()
-	} else {
+	case p.Mode == plan.ModeUpdate:
+		st, err = store.Load()
+		if err == nil && st.Pending != nil {
+			err = fmt.Errorf("an update of %q is already in progress; run: pk3s resume %s", p.Spec.Name, p.Spec.Name)
+		}
+		if err == nil {
+			st.Pending = &state.Operation{ID: p.OpID, Started: time.Now().UTC(), FromVersion: p.FromVersion, ToVersion: p.K3sVersion, Target: p.Spec}
+			err = store.Save(st)
+		}
+	default:
 		if store.Exists() {
 			store.Unlock()
 			return nil, fmt.Errorf("state for %q already exists; use resume", p.Spec.Name)
 		}
 		st = state.New(p.Spec.Name, p.K3sVersion)
+		st.Layout = p.Records()
 		if err = spec.Save(store.Path("spec.yaml"), p.Spec); err == nil {
 			err = store.Save(st)
 		}
@@ -224,7 +259,18 @@ func (a *App) LoadForResume(ctx context.Context, name string) (*plan.Plan, error
 	if err != nil {
 		return nil, err
 	}
-	return plan.Build(s, inv, st.K3sVersion)
+	if op := st.Pending; op != nil {
+		return plan.BuildUpdate(plan.UpdateInput{
+			Current: s, Layout: st.Layout, FromVersion: op.FromVersion,
+			Target: op.Target, ToVersion: op.ToVersion, OpID: op.ID,
+		}, inv)
+	}
+	return plan.BuildLayout(s, inv, st.K3sVersion, st.Layout)
+}
+
+// LoadSpec returns the deployed spec of a cluster.
+func (a *App) LoadSpec(name string) (spec.ClusterSpec, error) {
+	return spec.Load((&state.Store{Root: a.Root, Cluster: name}).Path("spec.yaml"))
 }
 
 // Clusters lists clusters with pk3s state.

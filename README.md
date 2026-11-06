@@ -90,6 +90,39 @@ pk3s list
 
 Ctrl-C during `apply` finishes the current step and stops. Press it a second time to abort that step.
 
+### Updating a running cluster
+
+There are no separate scale or upgrade commands. Edit the spec and apply it
+again. pk3s compares it with the deployed cluster, shows the changes, and
+applies them one at a time after you type `yes`. In the TUI, open the
+cluster from the main menu and press `e`.
+
+```sh
+cp /var/lib/pk3s/clusters/lab/spec.yaml lab.yaml   # the deployed spec
+$EDITOR lab.yaml                                    # e.g. agents: 4 -> 3
+pk3s plan  -f lab.yaml                              # shows the diff only
+pk3s apply -f lab.yaml
+```
+
+| Change in the spec | What happens |
+|--------------------|--------------|
+| `agents` up | new agents are created and joined, with the next free CT ID and IP |
+| `agents` down | the agent with the highest CT ID is drained, deleted from Kubernetes and destroyed; its data directory stays on the host |
+| `servers` 3→5→7 | new servers join embedded etcd one at a time |
+| `k3s.version` (exact) | rolling upgrade: datastore backup (etcd snapshot or SQLite copy), servers one by one (cordon), then agents (drain, 5 min timeout), each waiting for `Ready` on the new version |
+| CPU / RAM / disk / autostart | `pct set` / `pct resize` on the running containers (disks only grow) |
+
+Existing nodes always keep their CT ID, IP and data directory.
+
+The following are rejected by validation:
+
+- downgrades, or skipping a minor version;
+- going from 1 to 3 servers (needs SQLite → etcd conversion) and removing servers (not supported yet);
+- changing the security profile, k3s networking, disabled components, persistent data, the hostname prefix, or the network of an existing node.
+
+A channel such as `stable` never upgrades a running cluster; set an exact
+version to upgrade. An interrupted update continues with `pk3s resume <name>`.
+
 ### Example spec
 
 ```yaml

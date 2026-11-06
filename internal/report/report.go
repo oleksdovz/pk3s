@@ -53,7 +53,18 @@ func Plan(p *plan.Plan) string {
 	}
 	fmt.Fprintf(&b, "Tags         %s\n\n", strings.Join(p.Tags, ";"))
 
-	b.WriteString("Containers\n")
+	if p.Mode == plan.ModeUpdate {
+		fmt.Fprintf(&b, "\nUPDATE of the running cluster (k3s %s -> %s)\nChanges, applied one at a time in this order:\n", p.FromVersion, p.K3sVersion)
+		if len(p.Changes) == 0 {
+			b.WriteString("  (none)\n")
+		}
+		for _, c := range p.Changes {
+			fmt.Fprintf(&b, "  * %s\n", c)
+		}
+		b.WriteString("\nTarget layout (existing nodes keep their CT ID and address)\n")
+	} else {
+		b.WriteString("Containers\n")
+	}
 	tw := tabwriter.NewWriter(&b, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(tw, "  CTID\tHOSTNAME\tROLE\tADDRESS\tGATEWAY\tDNS\tCPU\tRAM\tDISK\tDATA DIR")
 	for _, n := range p.Nodes {
@@ -61,12 +72,19 @@ func Plan(p *plan.Plan) string {
 		if n.Bootstrap {
 			role += " (init)"
 		}
+		if p.Mode == plan.ModeUpdate && !p.Existing[n.Key] {
+			role += " NEW"
+		}
 		data := "-"
 		if n.DataDir != "" {
 			data = n.DataDir
 		}
 		fmt.Fprintf(tw, "  %d\t%s\t%s\t%s/%d\t%s\t%s\t%d\t%d MiB\t%d GiB on %s\t%s\n",
 			n.CTID, n.Hostname, role, n.IP, n.Prefix, n.Gateway, strings.Join(n.DNS, ","), n.Resources.Cores, n.Resources.MemoryMiB, n.Resources.DiskGiB, s.RootfsStorage, data)
+	}
+	for _, n := range p.Removed {
+		fmt.Fprintf(tw, "  %d\t%s\t%s REMOVE\t%s/%d\t%s\t%s\t%d\t%d MiB\t%d GiB\t%s\n",
+			n.CTID, n.Hostname, n.Role, n.IP, n.Prefix, n.Gateway, strings.Join(n.DNS, ","), n.Resources.Cores, n.Resources.MemoryMiB, n.Resources.DiskGiB, orDash(n.DataDir))
 	}
 	tw.Flush()
 
@@ -144,4 +162,11 @@ Access
 Secrets (join tokens) are stored in the same directory as secrets.json (mode 0600).
 `, kubeconfig, p.Spec.Name, p.Nodes[0].CTID, p.ServerURL())
 	return b.String()
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }

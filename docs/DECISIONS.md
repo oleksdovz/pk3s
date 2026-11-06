@@ -18,3 +18,7 @@ All decisions made with the project owner, in order (2026-11-06).
 | 12 | Language of communication | Replies in Ukrainian; code, CLI labels and docs in English. |
 | 13 | Node names | Servers are `<prefix>-main1..N`, agents `<prefix>-node1..N`; `node_network` keys are `main1`, `node1`, ... (replaces the earlier `-s1`/`-a1` scheme). Clusters created by builds before this change must not be resumed with newer builds (hostnames would differ). |
 | 14 | Autostart | `onboot: 1` plus Proxmox `startup`: main `order=1,up=10`, nodes `order=2,up=10` (editable on the "Autostart" page / `startup:` in YAML). Proxmox shuts guests down in reverse order, so main stops last. |
+| 15 | Update / scale | Declarative only: edit the spec and `apply` again (TUI: `e` on a cluster). No `scale`/`upgrade` commands. Changes run one at a time in the order shown in the plan: container settings → k3s upgrade (servers, then agents) → node removal → new nodes → readiness check. |
+| 16 | Scale-down | Remove the agent with the highest CT ID first (agents 5001-5004, agents -1 → 5004). Drain (5 min) → delete node → destroy CT; data directory kept. |
+| 17 | Upgrade | Only an exact version upgrades; channels never upgrade a running cluster. One minor version at a time, no downgrades. Datastore backup first; servers cordoned, agents drained. |
+| 18 | Stable layout | Deployed nodes keep CT ID, IP and data dir (`state.json` layout); new nodes take the next free ID/IP at or after their default position. Server count changes 1→3 and server removal are rejected until implemented. |

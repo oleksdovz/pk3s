@@ -49,6 +49,15 @@ func (f Finding) String() string { return fmt.Sprintf("[%s] %s: %s", f.Severity,
 // Findings is a list of findings.
 type Findings []Finding
 
+// String renders all findings, one per line.
+func (fs Findings) String() string {
+	var b strings.Builder
+	for _, f := range fs {
+		b.WriteString(f.String() + "\n")
+	}
+	return b.String()
+}
+
 // HasErrors reports whether any finding blocks deployment.
 func (fs Findings) HasErrors() bool {
 	for _, f := range fs {
@@ -343,25 +352,41 @@ func Plan(p *plan.Plan, inv *pve.Inventory, probes Probes) Findings {
 		add(Error, "network.vlan", "must be 1-4094 or 0 for untagged")
 	}
 
+	// Containers of this cluster (update mode) are not conflicts.
+	own := map[int]bool{}
+	planned := map[string]string{}
+	for _, n := range p.Nodes {
+		if p.Existing[n.Key] {
+			own[n.CTID] = true
+			planned[n.IP] = n.Hostname
+		}
+	}
+	for _, n := range p.Removed {
+		own[n.CTID] = true
+	}
+
 	usedIPs := map[string]string{}
+	usedNames := map[string]int{}
 	for _, g := range inv.Guests {
+		if own[g.VMID] {
+			continue
+		}
 		for _, ip := range g.IPs {
 			usedIPs[ip] = fmt.Sprintf("%s %d (%s)", g.Type, g.VMID, g.Name)
 		}
+		usedNames[g.Name] = g.VMID
 	}
 	for _, b := range inv.Bridges {
 		if b.Address != "" {
 			usedIPs[b.Address] = "host bridge " + b.Name
 		}
 	}
-	usedNames := map[string]int{}
-	for _, g := range inv.Guests {
-		usedNames[g.Name] = g.VMID
-	}
-	planned := map[string]string{}
 	subnets := map[netip.Prefix]bool{}
 
 	for _, n := range p.Nodes {
+		if p.Existing[n.Key] {
+			continue
+		}
 		field := "nodes." + n.Key
 		subnet, ok := checkNodeNet(&f, field, n)
 		if ok {
@@ -394,7 +419,7 @@ func Plan(p *plan.Plan, inv *pve.Inventory, probes Probes) Findings {
 	if len(subnets) > 1 {
 		add(Warning, "node_network", "nodes are in %d different subnets on one bridge; they must be routable to each other (TCP 6443, 10250, UDP 8472)", len(subnets))
 	}
-	if probes.StateExists != nil && probes.StateExists(s.Name) {
+	if p.Mode != plan.ModeUpdate && probes.StateExists != nil && probes.StateExists(s.Name) {
 		add(Error, "name", "pk3s state for cluster %q already exists; resume it or choose another name", s.Name)
 	}
 	if !p.Spec.Host.LoadKernelModules && len(p.MissingModules) > 0 {

@@ -18,12 +18,14 @@ unless stated explicitly.
 - `internal/tui` — Bubble Tea wizard (10 pages incl. per-node network editing), plan review, typed confirmation, progress, summary, status.
 - Tests: inventory against fixtures captured read-only from the PVE 9.2 host `hp`; plan; validation table tests; engine against a Proxmox simulator (full run, secret leakage, resume, foreign CT refusal, stop).
 
+- (done) Declarative update of a running cluster: stable node layout in state, diff plan, agent scale up/down, server scale-up for etcd clusters, rolling k3s upgrade with datastore backup, CPU/RAM/disk/autostart changes, resumable pending operation. Tested against the simulator only.
+
 ## Next
 - (done) TUI model tests, spec/state/runner tests.
 - (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.
 - (done) Read-only `pk3s init` / `pk3s plan` on `hp`: inventory correct; 192.168.0.51 is taken by a LAN device (MAC 10:66:6a:53:1c:c9), .52-.65 free.
 - (done) First live deployment on `hp`: 1 server + 1 agent, CT 5000-5001, 192.168.0.52-53, cluster `lab` (old `-s1/-a1` names). Works end to end after the PATH fix; see docs/TESTING.md.
-- Not yet tested live: `pk3s destroy`, a fresh `apply` with main/node names and autostart, 3-server etcd, persistent data bind mounts, the TUI in a real terminal, the unprivileged profile.
+- Not yet tested live: update/scale/upgrade, `pk3s destroy`, a fresh `apply` with main/node names and autostart, 3-server etcd, persistent data bind mounts, the TUI in a real terminal, the unprivileged profile.
 
 ## Planned (later phases)
 - Remote mode: `pk3s --host <proxmox>` from macOS (arm64) / Windows / Linux over SSH.

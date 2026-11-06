@@ -30,6 +30,7 @@ type Backend interface {
 	Status(ctx context.Context, name string) (*app.StatusReport, error)
 	LoadForResume(ctx context.Context, name string) (*plan.Plan, error)
 	NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (*app.Session, error)
+	LoadSpec(name string) (spec.ClusterSpec, error)
 	StateRoot() string
 }
 
@@ -293,6 +294,17 @@ func (m Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "s":
 			return m, m.loadStatus(m.statusName)
+		case "e":
+			s, err := m.be.LoadSpec(m.statusName)
+			if err != nil {
+				m.flash = err.Error()
+				return m, nil
+			}
+			m.spec = s
+			m.secIdx, m.fieldIdx, m.focus = 0, 0, 1
+			m.revalidate()
+			m.screen = scrWizard
+			m.flash = "Editing the deployed cluster: change agents, servers, resources or k3s version, then F9."
 		}
 	}
 	return m, nil
@@ -520,6 +532,10 @@ func (m Model) keyReview(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.flash = "The plan has errors; nothing can be deployed."
 			return m, nil
 		}
+		if m.plan.Mode == plan.ModeUpdate && len(m.plan.Changes) == 0 {
+			m.flash = "Nothing to change."
+			return m, nil
+		}
 		m.screen = scrConfirm
 		m.confirm.SetValue("")
 		m.confirm.Focus()
@@ -568,7 +584,7 @@ func (m Model) startRun() (tea.Model, tea.Cmd) {
 	m.stepStatus = map[string]string{}
 	m.screen = scrRunning
 	go func() {
-		err := sess.Engine.Run(runCtx)
+		err := sess.Run(runCtx)
 		events <- runDoneMsg{err}
 	}()
 	return m, tea.Batch(m.spin.Tick, m.waitEvent())

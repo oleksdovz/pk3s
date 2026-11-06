@@ -213,7 +213,8 @@ func (e *Engine) installK3s(ctx context.Context, n plan.Node) error {
 		return fmt.Errorf("join token not available; the bootstrap server must be installed first")
 	}
 
-	if err := e.PCT.Push(ctx, n.CTID, art.Path, k3s.BinaryPath, "0755"); err != nil {
+	_ = art
+	if err := e.pushBinary(ctx, n); err != nil {
 		return err
 	}
 	if _, err := e.PCT.ExecScript(ctx, n.CTID, `set -eu
@@ -350,7 +351,7 @@ func (e *Engine) clusterReady(ctx context.Context) error {
 			seen := map[string]bool{}
 			for _, ns := range nodes {
 				seen[ns.Name] = true
-				if want[ns.Name] && ns.Ready {
+				if want[ns.Name] && ns.Ready && (e.Plan.Mode != plan.ModeUpdate || ns.Version == e.Plan.K3sVersion) {
 					ready++
 				} else if want[ns.Name] {
 					notReady = append(notReady, ns.Name)

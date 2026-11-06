@@ -300,3 +300,42 @@ func (a Pveam) Download(ctx context.Context, storage, name string) error {
 	_, err := a.R.Run(ctx, runner.Cmd{Name: "pveam", Args: []string{"download", storage, name}})
 	return err
 }
+
+// Set changes container options (e.g. --cores 4 --memory 8192).
+func (p PCT) Set(ctx context.Context, vmid int, opts ...string) error {
+	return p.run(ctx, append([]string{"set", strconv.Itoa(vmid)}, opts...)...)
+}
+
+// Resize grows a container volume to an absolute size in GiB.
+func (p PCT) Resize(ctx context.Context, vmid int, disk string, sizeGiB int) error {
+	return p.run(ctx, "resize", strconv.Itoa(vmid), disk, fmt.Sprintf("%dG", sizeGiB))
+}
+
+// RootfsSizeGiB parses the rootfs size from a container config.
+func RootfsSizeGiB(conf string) int {
+	for _, line := range strings.Split(conf, "\n") {
+		if strings.HasPrefix(line, "[") {
+			break
+		}
+		v, ok := strings.CutPrefix(line, "rootfs:")
+		if !ok {
+			continue
+		}
+		for _, kv := range strings.Split(v, ",") {
+			if size, ok := strings.CutPrefix(strings.TrimSpace(kv), "size="); ok {
+				n := 0
+				unit := ""
+				fmt.Sscanf(size, "%d%s", &n, &unit)
+				switch unit {
+				case "T":
+					return n * 1024
+				case "M":
+					return n / 1024
+				default:
+					return n
+				}
+			}
+		}
+	}
+	return 0
+}

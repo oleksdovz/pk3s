@@ -8,6 +8,7 @@ import (
 
 	"github.com/oleksdovz/pk3s/internal/app"
 	"github.com/oleksdovz/pk3s/internal/engine"
+	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/report"
 	"github.com/oleksdovz/pk3s/internal/state"
 	"github.com/oleksdovz/pk3s/internal/validate"
@@ -49,7 +50,7 @@ func (m Model) View() string {
 		keys = []string{"Enter", "Menu", "q", "Quit"}
 	case scrStatus:
 		body = m.viewStatus(w)
-		keys = []string{"r", "Resume", "s", "Refresh", "Esc", "Back"}
+		keys = []string{"e", "Edit / scale / upgrade", "r", "Resume", "s", "Refresh", "Esc", "Back"}
 	}
 
 	header := stHeader.Width(w).Render(m.headerText())
@@ -215,8 +216,13 @@ func window(n, sel, size int) (int, int) {
 func (m Model) viewConfirm() string {
 	var b strings.Builder
 	if m.resume {
-		b.WriteString(stTitle.Render("Resume deployment of "+m.plan.Spec.Name) + "\n\n")
+		b.WriteString(stTitle.Render("Resume "+m.plan.Spec.Name) + "\n\n")
 		b.WriteString("Completed steps are skipped; the failed step is retried.\n")
+	} else if m.plan.Mode == plan.ModeUpdate {
+		b.WriteString(stTitle.Render("Update running cluster "+m.plan.Spec.Name) + "\n\n")
+		for _, c := range m.plan.Changes {
+			b.WriteString("  * " + wrap(c, 76) + "\n")
+		}
 	} else {
 		b.WriteString(stTitle.Render("Create cluster "+m.plan.Spec.Name) + "\n\n")
 		fmt.Fprintf(&b, "This creates %d containers and applies the host changes listed in the plan.\n", len(m.plan.Nodes))
@@ -303,8 +309,15 @@ func truncate(s string, n int) string {
 func (m Model) viewDone(w int) string {
 	var b strings.Builder
 	if m.runErr == nil {
-		b.WriteString(stOK.Render("Deployment finished") + "\n\n")
-		b.WriteString(report.Summary(m.plan, m.session.Store.Path("kubeconfig")))
+		if m.plan.Mode == plan.ModeUpdate {
+			b.WriteString(stOK.Render("Update finished") + "\n\n")
+			for _, c := range m.plan.Changes {
+				b.WriteString("  ✓ " + c + "\n")
+			}
+		} else {
+			b.WriteString(stOK.Render("Deployment finished") + "\n\n")
+			b.WriteString(report.Summary(m.plan, m.session.Store.Path("kubeconfig")))
+		}
 	} else {
 		if m.runErr == engine.ErrStopped {
 			b.WriteString(stWarn.Render("Deployment stopped by user") + "\n\n")

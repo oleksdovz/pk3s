@@ -29,7 +29,9 @@ Usage:
   pk3s                       start the interactive terminal UI
   pk3s init                  print a starter cluster.yaml for this host
   pk3s plan    -f FILE       validate FILE and show the deployment plan (no changes)
-  pk3s apply   -f FILE       show the plan, ask for confirmation, deploy
+  pk3s apply   -f FILE       show the plan, ask for confirmation, deploy;
+                             for an existing cluster: apply the changes in FILE
+                             (scale agents, add servers, upgrade k3s, CPU/RAM/disk)
   pk3s resume  NAME          continue an interrupted or failed deployment
   pk3s status  NAME          show containers and Kubernetes node status
   pk3s list                  list clusters managed by pk3s
@@ -167,6 +169,9 @@ func cmdPlan(ctx context.Context, a *app.App, args []string) (*plan.Plan, error)
 	if prep.Findings.HasErrors() {
 		return nil, errors.New("validation failed; nothing was changed")
 	}
+	if prep.Plan.Mode == plan.ModeUpdate && len(prep.Plan.Changes) == 0 {
+		return nil, nil
+	}
 	return prep.Plan, nil
 }
 
@@ -181,7 +186,15 @@ func cmdApply(ctx context.Context, a *app.App, args []string) error {
 	if err != nil {
 		return err
 	}
-	if !confirm("\nType 'yes' to create the resources above: ", "yes") {
+	if p == nil {
+		fmt.Println("Nothing to change.")
+		return nil
+	}
+	prompt := "\nType 'yes' to create the resources above: "
+	if p.Mode == plan.ModeUpdate {
+		prompt = "\nType 'yes' to apply the changes above to the running cluster: "
+	}
+	if !confirm(prompt, "yes") {
 		return errors.New("aborted; nothing was changed")
 	}
 	return execute(ctx, a, p, false)
@@ -221,12 +234,16 @@ func execute(ctx context.Context, a *app.App, p *plan.Plan, resume bool) error {
 		cancel()
 	}()
 
-	if err := sess.Engine.Run(runCtx); err != nil {
+	if err := sess.Run(runCtx); err != nil {
 		fmt.Fprintln(os.Stderr, "\n"+err.Error())
 		fmt.Fprintln(os.Stderr, "\n"+app.RecoveryHint(p.Spec.Name, a.Root))
 		return errors.New("deployment incomplete")
 	}
 	fmt.Println()
+	if p.Mode == plan.ModeUpdate {
+		fmt.Printf("Cluster %q updated.\n\n", p.Spec.Name)
+		return cmdStatus(ctx, a, []string{p.Spec.Name})
+	}
 	fmt.Print(report.Summary(p, sess.Store.Path("kubeconfig")))
 	return nil
 }

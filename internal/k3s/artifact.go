@@ -244,3 +244,29 @@ func (f Fetcher) download(ctx context.Context, u, dst string) error {
 	}
 	return out.Close()
 }
+
+// Version is a parsed k3s release tag (v1.37.2+k3s1).
+type Version struct{ Major, Minor, Patch, Rev int }
+
+// ParseVersion parses an exact k3s release tag.
+func ParseVersion(v string) (Version, bool) {
+	var out Version
+	if !IsExactVersion(v) {
+		return out, false
+	}
+	_, err := fmt.Sscanf(v, "v%d.%d.%d+k3s%d", &out.Major, &out.Minor, &out.Patch, &out.Rev)
+	return out, err == nil
+}
+
+// Compare returns -1, 0 or 1.
+func (a Version) Compare(b Version) int {
+	for _, d := range [][2]int{{a.Major, b.Major}, {a.Minor, b.Minor}, {a.Patch, b.Patch}, {a.Rev, b.Rev}} {
+		if d[0] < d[1] {
+			return -1
+		}
+		if d[0] > d[1] {
+			return 1
+		}
+	}
+	return 0
+}

@@ -210,7 +210,7 @@ func (s *StepError) Unwrap() error { return s.Err }
 
 func (e *Engine) runStep(ctx context.Context, st plan.Step) error {
 	var node plan.Node
-	if st.Node >= 0 {
+	if st.Node >= 0 && st.Kind != plan.StepRemoveNode {
 		node = e.Plan.Nodes[st.Node]
 	}
 	switch st.Kind {
@@ -239,6 +239,14 @@ func (e *Engine) runStep(ctx context.Context, st plan.Step) error {
 		return e.clusterReady(ctx)
 	case plan.StepKubeconfig:
 		return e.kubeconfig(ctx)
+	case plan.StepUpdateCT:
+		return e.updateCT(ctx, node)
+	case plan.StepBackup:
+		return e.backupDatastore(ctx)
+	case plan.StepUpgradeNode:
+		return e.upgradeNode(ctx, node)
+	case plan.StepRemoveNode:
+		return e.removeNode(ctx, e.Plan.Removed[st.Node])
 	default:
 		return fmt.Errorf("unknown step kind %q", st.Kind)
 	}

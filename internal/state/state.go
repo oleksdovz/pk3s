@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/oleksdovz/pk3s/internal/plan"
+	"github.com/oleksdovz/pk3s/internal/spec"
 )
 
 // DefaultRoot is where pk3s keeps its data on the Proxmox host.
@@ -56,6 +59,21 @@ type State struct {
 	Updated    time.Time            `json:"updated"`
 	Steps      map[string]StepState `json:"steps"`
 	Resources  []Resource           `json:"resources"`
+	// Layout is the deployed node identity (CT ID, address, settings).
+	Layout []plan.NodeRecord `json:"layout,omitempty"`
+	// Pending is an update operation that has not finished yet.
+	Pending *Operation `json:"pending,omitempty"`
+}
+
+// Operation is an in-progress change to a deployed cluster. Its target
+// spec becomes spec.yaml and its layout becomes State.Layout only when
+// every step has finished.
+type Operation struct {
+	ID          string           `json:"id"`
+	Started     time.Time        `json:"started"`
+	FromVersion string           `json:"from_version"`
+	ToVersion   string           `json:"to_version"`
+	Target      spec.ClusterSpec `json:"target"`
 }
 
 // Secrets is persisted as secrets.json (0600). Never log its contents.

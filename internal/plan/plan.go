@@ -56,6 +56,11 @@ const (
 	StepFetchTokens  StepKind = "k3s-tokens"
 	StepClusterReady StepKind = "cluster-ready"
 	StepKubeconfig   StepKind = "kubeconfig"
+	// Update operations.
+	StepUpdateCT    StepKind = "ct-update"
+	StepBackup      StepKind = "datastore-backup"
+	StepUpgradeNode StepKind = "k3s-upgrade"
+	StepRemoveNode  StepKind = "node-remove"
 )
 
 // Step is one unit of work; ID is stable across runs and used for resume.
@@ -63,7 +68,9 @@ type Step struct {
 	ID    string
 	Kind  StepKind
 	Title string
-	Node  int // index into Plan.Nodes, -1 if not node-specific
+	// Node indexes Plan.Nodes (Plan.Removed for StepRemoveNode); -1 if
+	// the step is not node-specific.
+	Node int
 }
 
 // Plan is the full deployment plan.
@@ -80,7 +87,21 @@ type Plan struct {
 	Tags        []string
 	// MissingModules are host kernel modules that are not loaded.
 	MissingModules []string
+
+	// Update mode (zero values for a new cluster).
+	Mode        string // ModeCreate | ModeUpdate
+	OpID        string
+	FromVersion string
+	Existing    map[string]bool // node keys that already exist
+	Removed     []Node          // nodes to remove (highest number first)
+	Changes     []string        // human-readable summary of the diff
 }
+
+// Plan modes.
+const (
+	ModeCreate = "create"
+	ModeUpdate = "update"
+)
 
 // ClusterTag returns the per-cluster Proxmox tag.
 func ClusterTag(name string) string { return "pk3s-" + name }
@@ -92,6 +113,13 @@ const ManagedTag = "pk3s"
 // are resolved by the caller). Build fails only on errors that make a plan
 // impossible to compute; everything else is reported by validate.
 func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, error) {
+	return BuildLayout(s, inv, k3sVersion, nil)
+}
+
+// BuildLayout is Build with an existing node layout: nodes found in layout
+// keep their recorded CT ID, address and data directory; new nodes get the
+// lowest free CT ID and address at or after their default position.
+func BuildLayout(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string, layout []NodeRecord) (*Plan, error) {
 	prof, err := lxcprofile.For(s.Security)
 	if err != nil {
 		return nil, err
@@ -109,6 +137,26 @@ func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, er
 		Arch:       inv.Arch,
 		Profile:    prof,
 		Tags:       []string{ManagedTag, ClusterTag(s.Name)},
+		Mode:       ModeCreate,
+		Existing:   map[string]bool{},
+	}
+	recs := map[string]NodeRecord{}
+	usedID := map[int]bool{}
+	usedIP := map[netip.Addr]bool{}
+	for _, r := range layout {
+		recs[r.Key] = r
+		usedID[r.CTID] = true
+		if a, err := netip.ParseAddr(r.IP); err == nil {
+			usedIP[a] = true
+		}
+	}
+	for _, o := range s.NodeNetwork {
+		if _, pinned := recs[o.Node]; pinned {
+			continue
+		}
+		if a, err := netip.ParseAddr(strings.TrimSpace(o.IP)); err == nil {
+			usedIP[a] = true
+		}
 	}
 	if s.EmbeddedEtcd() {
 		p.Datastore = fmt.Sprintf("embedded etcd (%d servers, quorum %d, tolerates %d server failure(s))",
@@ -117,17 +165,41 @@ func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, er
 		p.Datastore = "SQLite on the single server (no control-plane redundancy)"
 	}
 
-	ip := first
 	for i := 0; i < s.TotalNodes(); i++ {
-		n := Node{
-			Index: i, Key: s.NodeKey(i), CTID: s.CTIDStart + i, IP: ip.String(),
-			Prefix: s.Network.Prefix, Gateway: s.Network.Gateway, DNS: s.Network.DNS,
+		key := s.NodeKey(i)
+		n := Node{Index: i, Key: key, Hostname: s.Prefix() + "-" + key}
+		if i < s.Servers {
+			n.Role, n.Resources, n.Bootstrap = k3s.RoleServer, s.Server, i == 0
+		} else {
+			n.Role, n.Resources = k3s.RoleAgent, s.Agent
 		}
-		if o, ok := s.Override(n.Key); ok {
-			n.Overridden = true
-			if o.IP != "" {
-				n.IP = strings.TrimSpace(o.IP)
+		if r, ok := recs[key]; ok {
+			// Existing node: identity and network never change.
+			p.Existing[key] = true
+			n.CTID, n.IP, n.Prefix, n.Gateway, n.DNS, n.DataDir = r.CTID, r.IP, r.Prefix, r.Gateway, r.DNS, r.DataDir
+			p.Nodes = append(p.Nodes, n)
+			continue
+		}
+		id := s.CTIDStart + i
+		for usedID[id] {
+			id++
+		}
+		usedID[id] = true
+		n.CTID = id
+		n.Prefix, n.Gateway, n.DNS = s.Network.Prefix, s.Network.Gateway, s.Network.DNS
+		o, hasOverride := s.Override(key)
+		if hasOverride && o.IP != "" {
+			n.IP = strings.TrimSpace(o.IP)
+		} else {
+			ip := nthAddr(first, i)
+			for usedIP[ip] {
+				ip = ip.Next()
 			}
+			usedIP[ip] = true
+			n.IP = ip.String()
+		}
+		if hasOverride {
+			n.Overridden = true
 			if o.Prefix != 0 {
 				n.Prefix = o.Prefix
 			}
@@ -138,21 +210,10 @@ func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, er
 				n.DNS = o.DNS
 			}
 		}
-		if i < s.Servers {
-			n.Role = k3s.RoleServer
-			n.Hostname = s.Prefix() + "-" + n.Key
-			n.Resources = s.Server
-			n.Bootstrap = i == 0
-		} else {
-			n.Role = k3s.RoleAgent
-			n.Hostname = s.Prefix() + "-" + n.Key
-			n.Resources = s.Agent
-		}
 		if s.Persistent.Enabled && s.Persistent.HostPath != "" {
 			n.DataDir = path.Join(s.Persistent.HostPath, s.Name, n.Hostname)
 		}
 		p.Nodes = append(p.Nodes, n)
-		ip = ip.Next()
 	}
 	for k := range overrideKeys(s) {
 		if !validKey(s, k) {
@@ -189,6 +250,13 @@ func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, er
 
 	p.Steps = buildSteps(p, inv)
 	return p, nil
+}
+
+func nthAddr(a netip.Addr, n int) netip.Addr {
+	for ; n > 0; n-- {
+		a = a.Next()
+	}
+	return a
 }
 
 func overrideKeys(s spec.ClusterSpec) map[string]bool {

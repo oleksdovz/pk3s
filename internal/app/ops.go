@@ -54,7 +54,7 @@ func (a *App) Status(ctx context.Context, name string) (*StatusReport, error) {
 	if _, ok := st.Steps[string(plan.StepTemplate)]; !ok {
 		inv.Templates = []pve.Template{{VolID: s.Template.VolID()}}
 	}
-	p, err := plan.Build(s, inv, st.K3sVersion)
+	p, err := plan.BuildLayout(s, inv, st.K3sVersion, st.Layout)
 	if err != nil {
 		return nil, err
 	}

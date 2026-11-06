@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,13 +36,15 @@ type sim struct {
 	calls    []runner.Cmd
 	failOnce map[string]bool // command prefix -> fail the next call
 	foreign  map[int]bool    // pre-existing CTs not owned by pk3s
+	kubectl  []string        // kubectl invocations (without the binary)
 }
 
 type simCT struct {
-	conf    string
-	running bool
-	k3s     bool
-	files   map[string]string
+	conf        string
+	running     bool
+	k3s         bool
+	nodeDeleted bool
+	files       map[string]string
 }
 
 func newSim() *sim {
@@ -93,7 +97,13 @@ func (s *sim) Run(_ context.Context, c runner.Cmd) (runner.Result, error) {
 					tags = a[i+1]
 				}
 			}
-			s.cts[id] = &simCT{conf: "arch: amd64\ntags: " + tags + "\n", files: map[string]string{}}
+			disk := "30"
+			for i, x := range a {
+				if x == "--rootfs" {
+					disk = a[i+1][strings.Index(a[i+1], ":")+1:]
+				}
+			}
+			s.cts[id] = &simCT{conf: "arch: amd64\ntags: " + tags + "\nrootfs: x-data:vm-" + a[1] + "-disk-0,size=" + disk + "G\n", files: map[string]string{}}
 			return ok("")
 		case "status":
 			if ct == nil {
@@ -113,7 +123,12 @@ func (s *sim) Run(_ context.Context, c runner.Cmd) (runner.Result, error) {
 			delete(s.cts, id)
 			return ok("")
 		case "set":
-			ct.conf += strings.TrimPrefix(a[2], "-") + ": " + a[3] + "\n"
+			for i := 2; i+1 < len(a); i += 2 {
+				ct.conf += strings.TrimLeft(a[i], "-") + ": " + a[i+1] + "\n"
+			}
+			return ok("")
+		case "resize":
+			ct.conf = regexpSize.ReplaceAllString(ct.conf, "size="+a[3])
 			return ok("")
 		case "push":
 			data, err := os.ReadFile(a[2])
@@ -136,7 +151,27 @@ func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Resul
 	if args[0] == "k3s" || args[0] == "kubectl" {
 		return runner.Result{ExitCode: 127}, fmt.Errorf("lxc-attach: Failed to exec %q: not in PATH", args[0])
 	}
+	if args[0] == k3s.BinaryPath && len(args) > 1 && args[1] == "kubectl" && (len(args) < 3 || args[2] != "get") {
+		s.kubectl = append(s.kubectl, strings.Join(args[2:], " "))
+		if args[2] == "delete" && args[3] == "node" {
+			for _, c := range s.cts {
+				if strings.Contains(c.files[k3s.ConfigPath], "node-name: "+args[4]+"\n") {
+					c.nodeDeleted = true
+				}
+			}
+		}
+		return ok("")
+	}
 	switch {
+	case args[0] == "mv":
+		ct.files[args[3]] = ct.files[args[2]]
+		delete(ct.files, args[2])
+		return ok("")
+	case cmd == k3s.BinaryPath+" etcd-snapshot save --name "+args[len(args)-1]:
+		s.kubectl = append(s.kubectl, "etcd-snapshot "+args[len(args)-1])
+		return ok("")
+	case strings.HasPrefix(cmd, "systemctl restart --no-block"):
+		return ok("")
 	case cmd == "systemctl is-system-running":
 		return ok("running")
 	case cmd == "/bin/sh -s":
@@ -172,11 +207,12 @@ func (s *sim) nodesJSON() string {
 		} `json:"metadata"`
 		Status struct {
 			Conditions []map[string]string `json:"conditions"`
+			NodeInfo   map[string]string   `json:"nodeInfo"`
 		} `json:"status"`
 	}
 	var items []item
 	for _, ct := range s.cts {
-		if !ct.k3s {
+		if !ct.k3s || ct.nodeDeleted {
 			continue
 		}
 		var it item
@@ -186,6 +222,7 @@ func (s *sim) nodesJSON() string {
 			}
 		}
 		it.Status.Conditions = []map[string]string{{"type": "Ready", "status": "True"}}
+		it.Status.NodeInfo = map[string]string{"kubeletVersion": ct.files[k3s.BinaryPath]}
 		items = append(items, it)
 	}
 	b, _ := json.Marshal(map[string]any{"items": items})
@@ -200,10 +237,18 @@ func ctFromConf(path string) int {
 	return id
 }
 
-type fakeFetch struct{ path string }
+var regexpSize = regexp.MustCompile(`size=\d+G`)
 
-func (f fakeFetch) EnsureBinary(context.Context, string, string, string) (k3s.Artifact, error) {
-	return k3s.Artifact{Version: "v1.37.2+k3s1", Arch: "amd64", Path: f.path, SHA256: "abc"}, nil
+// fakeFetch writes one "binary" per version whose content is the version,
+// so the simulator can report kubeletVersion from the pushed file.
+type fakeFetch struct{ dir string }
+
+func (f fakeFetch) EnsureBinary(_ context.Context, _, version, _ string) (k3s.Artifact, error) {
+	p := filepath.Join(f.dir, "k3s-"+version)
+	if err := os.WriteFile(p, []byte(version), 0o755); err != nil {
+		return k3s.Artifact{}, err
+	}
+	return k3s.Artifact{Version: version, Arch: "amd64", Path: p, SHA256: "abc"}, nil
 }
 
 // memFS records host writes outside the state dir instead of touching /etc.
@@ -259,8 +304,7 @@ func newHarness(t *testing.T, mutate func(*spec.ClusterSpec)) *harness {
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
-	bin := root + "/k3s-bin"
-	os.WriteFile(bin, []byte("binary"), 0o755)
+	bin := root
 	h := &harness{sim: newSim(), store: store, fs: &memFS{root: root, written: map[string]string{}}}
 	h.eng = h.newEngine(p, state.New("lab", p.K3sVersion), &state.Secrets{}, bin)
 	return h
@@ -383,7 +427,7 @@ func TestResumeAfterFailure(t *testing.T) {
 
 	// Resume with state and secrets reloaded from disk, as `pk3s resume` does.
 	sec, _ := h.store.LoadSecrets()
-	h.eng = h.newEngine(h.eng.Plan, st, sec, h.eng.Fetch.(fakeFetch).path)
+	h.eng = h.newEngine(h.eng.Plan, st, sec, h.eng.Fetch.(fakeFetch).dir)
 	if err := h.eng.Run(context.Background()); err != nil {
 		t.Fatalf("resume failed: %v", err)
 	}
