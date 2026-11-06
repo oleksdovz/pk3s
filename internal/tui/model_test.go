@@ -21,6 +21,7 @@ import (
 type fakeBackend struct {
 	inv      *pve.Inventory
 	prepared spec.ClusterSpec
+	deployed *plan.UpdateInput // set to simulate a deployed cluster
 }
 
 func (f *fakeBackend) Inventory(context.Context) (*pve.Inventory, error) { return f.inv, nil }
@@ -41,8 +42,18 @@ func (f *fakeBackend) LoadForResume(context.Context, string) (*plan.Plan, error)
 func (f *fakeBackend) NewSession(*plan.Plan, bool, func(engine.Event)) (*app.Session, error) {
 	return nil, nil
 }
-func (f *fakeBackend) StateRoot() string                                  { return "/var/lib/pk3s" }
-func (f *fakeBackend) LoadSpec(string) (spec.ClusterSpec, error)          { return spec.ClusterSpec{}, nil }
+func (f *fakeBackend) StateRoot() string { return "/var/lib/pk3s" }
+func (f *fakeBackend) LoadSpec(string) (spec.ClusterSpec, error) {
+	if f.deployed != nil {
+		return f.deployed.Current, nil
+	}
+	return spec.ClusterSpec{}, nil
+}
+func (f *fakeBackend) UpdateInput(_ string, target spec.ClusterSpec) (plan.UpdateInput, error) {
+	in := *f.deployed
+	in.Target, in.OpID = target, "live"
+	return in, nil
+}
 func (f *fakeBackend) ExportSpec(context.Context, string) (string, error) { return "/tmp/x.yaml", nil }
 func (f *fakeBackend) PlanDestroy(context.Context, string) (*app.DestroyPlan, error) {
 	return &app.DestroyPlan{Cluster: "lab"}, nil
@@ -113,6 +124,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyF1}
 	case "f8":
 		return tea.KeyMsg{Type: tea.KeyF8}
+	case "f4":
+		return tea.KeyMsg{Type: tea.KeyF4}
 	case "f10":
 		return tea.KeyMsg{Type: tea.KeyF10}
 	case "alt+9":
@@ -440,5 +453,55 @@ func TestRunningScreenGroupsByContainer(t *testing.T) {
 		if !strings.Contains(view, s) {
 			t.Errorf("view missing %q", s)
 		}
+	}
+}
+
+// Editing a deployed cluster (scale up) must not report its own
+// containers as conflicts; deployed nodes show their fixed network.
+func TestEditDeployedClusterScaleUp(t *testing.T) {
+	m, be := newModel(t)
+	cur := spec.Default()
+	cur.Name, cur.Servers, cur.Agents = "test002", 1, 2
+	cur.Template = spec.Template{Storage: "local", Name: "debian-13-standard_13.1-2_amd64.tar.zst"}
+	cur.RootfsStorage = "x-data"
+	cur.Network = spec.Network{Bridge: "vmbr0", FirstIP: "192.168.0.77", Prefix: 24, Gateway: "192.168.0.1", DNS: []string{"192.168.0.2"}}
+	cur.Security.AcknowledgePrivilegedRisk = true
+	cur.K3s.Version = "v1.37.2+k3s1"
+	p, err := plan.Build(cur, be.inv, "v1.37.2+k3s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The host now runs these containers.
+	for _, n := range p.Nodes {
+		be.inv.Guests = append(be.inv.Guests, pve.Guest{VMID: n.CTID, Name: n.Hostname, Type: "lxc", IPs: []string{n.IP}, Tags: []string{"pk3s", "pk3s-test002"}})
+	}
+	be.deployed = &plan.UpdateInput{Current: cur, Layout: p.Records(), FromVersion: "v1.37.2+k3s1"}
+
+	m.clusters, m.menuIdx = []string{"test002"}, 1
+	m = send(t, m, key("f4"))
+	if m.screen != scrWizard || m.editName != "test002" {
+		t.Fatalf("F4 should edit the deployed cluster: %v %q", m.screen, m.editName)
+	}
+	m = gotoPage(t, m, "Topology")
+	m = editField(t, m, "Agent nodes", "5")
+	if m.findings.HasErrors() {
+		t.Fatalf("scale-up must not report the cluster's own containers: %v", m.findings)
+	}
+	m = gotoPage(t, m, "Node network")
+	view := m.View()
+	if !strings.Contains(view, "test002-main1 (deployed)") || !strings.Contains(view, "192.168.0.77/24 via 192.168.0.1") {
+		t.Errorf("deployed node network not shown:\n%s", view)
+	}
+	if !strings.Contains(view, "test002-node3 IP") {
+		t.Error("new node fields missing")
+	}
+	// Renaming is refused.
+	m = gotoPage(t, m, "Cluster")
+	m.focus, m.fieldIdx = 1, 0
+	m = send(t, m, key("enter"), key("ctrl+u"))
+	m = send(t, m, typeText("other")...)
+	m = send(t, m, key("enter"))
+	if m.fieldErr == "" || m.spec.Name != "test002" {
+		t.Fatal("deployed cluster must not be renamed")
 	}
 }

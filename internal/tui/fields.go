@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/pve"
 	"github.com/oleksdovz/pk3s/internal/spec"
 )
@@ -141,7 +142,9 @@ func contains(list []string, v string) bool {
 
 // buildSections creates the wizard pages for the current spec. Pages that
 // depend on the spec (node network) are rebuilt after every change.
-func buildSections(s *spec.ClusterSpec, inv *pve.Inventory) []section {
+// buildSections creates the wizard pages. layout is non-nil when editing a
+// deployed cluster: its nodes keep their network and the name is fixed.
+func buildSections(s *spec.ClusterSpec, inv *pve.Inventory, layout []plan.NodeRecord) []section {
 	var tmplStores, rootStores, bridges, templates []string
 	for _, st := range inv.Storages {
 		if st.Active && st.Has("vztmpl") {
@@ -165,7 +168,7 @@ func buildSections(s *spec.ClusterSpec, inv *pve.Inventory) []section {
 			title: "Cluster", prefixes: []string{"name", "hostname_prefix", "ctid_start", "node", "host"},
 			intro: "Containers are named <prefix>-main1.. (servers) and <prefix>-node1.. (agents).",
 			fields: []field{
-				textField("Cluster name", "Used for state, tags (pk3s-<name>) and kubeconfig context", func(s *spec.ClusterSpec) *string { return &s.Name }),
+				nameField(layout != nil),
 				textField("Hostname prefix", "Prefix for container and k3s node names; empty = cluster name", func(s *spec.ClusterSpec) *string { return &s.HostnamePrefix }),
 				intField("First CT ID", "Containers use consecutive IDs starting here", func(s *spec.ClusterSpec) *int { return &s.CTIDStart }),
 			},
@@ -213,7 +216,7 @@ func buildSections(s *spec.ClusterSpec, inv *pve.Inventory) []section {
 				intField("MTU", "0 = bridge default", func(s *spec.ClusterSpec) *int { return &s.Network.MTU }),
 			},
 		},
-		nodeNetworkSection(s),
+		nodeNetworkSection(s, layout),
 		{
 			title: "Persistent data", prefixes: []string{"persistent_data"},
 			intro: "Optionally bind-mount a host directory into each container at\n/var/lib/rancher/k3s/storage (local-path-provisioner volumes).\nEach node gets <path>/<cluster>/<hostname>. Data survives container\ndestroy, is NOT included in vzdump backups and blocks CT migration.",
@@ -282,16 +285,45 @@ func storageHelp(inv *pve.Inventory) string {
 // nodeNetworkSection exposes IP/prefix/gateway/DNS for every node. Values
 // shown are the effective ones; editing creates a per-node override, and
 // clearing a field returns it to the default.
-func nodeNetworkSection(s *spec.ClusterSpec) section {
+func nameField(fixed bool) field {
+	f := textField("Cluster name", "Used for state, tags (pk3s-<name>) and kubeconfig context", func(s *spec.ClusterSpec) *string { return &s.Name })
+	if fixed {
+		f.help = "Deployed cluster: the name cannot be changed (a new name would create a new cluster)"
+		f.set = func(*spec.ClusterSpec, string) error {
+			return fmt.Errorf("a deployed cluster cannot be renamed")
+		}
+	}
+	return f
+}
+
+func nodeNetworkSection(s *spec.ClusterSpec, layout []plan.NodeRecord) section {
 	sec := section{
 		title:    "Node network",
 		prefixes: []string{"nodes.", "node_network"},
-		intro:    "Per-container networking. Empty value = cluster default (shown in brackets).",
+		intro:    "Per-container networking. Empty value = cluster default (shown below the list).",
+	}
+	if layout != nil {
+		sec.intro = "Deployed nodes keep their network. New nodes: empty value = cluster default."
+	}
+	deployed := map[string]plan.NodeRecord{}
+	for _, r := range layout {
+		deployed[r.Key] = r
 	}
 	defaultIP := func(i int) string { return nthIP(s.Network.FirstIP, i) }
 	for i := 0; i < s.TotalNodes(); i++ {
 		key := s.NodeKey(i)
 		host := fmt.Sprintf("%s-%s", s.Prefix(), key)
+		if r, ok := deployed[key]; ok {
+			value := fmt.Sprintf("%s/%d via %s, DNS %s", r.IP, r.Prefix, r.Gateway, strings.Join(r.DNS, ","))
+			sec.fields = append(sec.fields, field{
+				label: host + " (deployed)", help: fmt.Sprintf("CT %d: network of a deployed node cannot be changed", r.CTID), kind: kindText,
+				get: func(*spec.ClusterSpec) string { return value },
+				set: func(*spec.ClusterSpec, string) error {
+					return fmt.Errorf("network of a deployed node cannot be changed")
+				},
+			})
+			continue
+		}
 		idx := i
 		get := func(fn func(o spec.NodeNetwork) string) func(*spec.ClusterSpec) string {
 			return func(s *spec.ClusterSpec) string {

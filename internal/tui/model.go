@@ -31,6 +31,7 @@ type Backend interface {
 	LoadForResume(ctx context.Context, name string) (*plan.Plan, error)
 	NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (*app.Session, error)
 	LoadSpec(name string) (spec.ClusterSpec, error)
+	UpdateInput(name string, target spec.ClusterSpec) (plan.UpdateInput, error)
 	ExportSpec(ctx context.Context, name string) (string, error)
 	PlanDestroy(ctx context.Context, name string) (*app.DestroyPlan, error)
 	Destroy(ctx context.Context, dp *app.DestroyPlan, progress func(string)) error
@@ -126,6 +127,11 @@ type Model struct {
 	statusName string
 	statusText string
 
+	// editName is the deployed cluster being edited ("" for a new one);
+	// layout holds its deployed nodes.
+	editName string
+	layout   []plan.NodeRecord
+
 	// navigation
 	help      bool
 	reviewSel bool // "Review plan & deploy" entry selected in the page list
@@ -180,7 +186,7 @@ func (m Model) loadInventory() tea.Cmd {
 const placeholderVersion = "v0.0.0+k3s1"
 
 func (m *Model) revalidate() {
-	m.sections = buildSections(&m.spec, m.inv)
+	m.sections = buildSections(&m.spec, m.inv, m.layout)
 	if m.secIdx >= len(m.sections) {
 		m.secIdx = len(m.sections) - 1
 	}
@@ -188,6 +194,23 @@ func (m *Model) revalidate() {
 		m.fieldIdx = max(0, n-1)
 	}
 	f := validate.Spec(m.spec, m.inv)
+	if m.editName != "" {
+		// Editing a deployed cluster: validate the diff like apply does, so
+		// the cluster's own containers are not reported as conflicts.
+		in, err := m.be.UpdateInput(m.editName, m.spec)
+		if err != nil {
+			m.findings = append(f, validate.Finding{Severity: validate.Error, Field: "name", Message: err.Error()})
+			return
+		}
+		f = append(f, validate.Update(in)...)
+		if p, err := plan.BuildUpdate(in, m.inv); err == nil {
+			f = append(f, validate.Plan(p, m.inv, validate.Probes{})...)
+		} else {
+			f = append(f, validate.Finding{Severity: validate.Error, Field: "node_network", Message: err.Error()})
+		}
+		m.findings = f
+		return
+	}
 	if p, err := plan.Build(m.spec, m.inv, placeholderVersion); err == nil {
 		f = append(f, validate.Plan(p, m.inv, validate.Probes{})...)
 	} else {

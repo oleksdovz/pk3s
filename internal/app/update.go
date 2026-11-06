@@ -58,3 +58,22 @@ func (a *App) prepareUpdate(ctx context.Context, target spec.ClusterSpec, inv *p
 	}
 	return &Prepared{Plan: p, Findings: f, Inv: inv}, nil
 }
+
+// UpdateInput returns the update description for editing a deployed
+// cluster (used by the TUI for live validation; nothing is changed).
+func (a *App) UpdateInput(name string, target spec.ClusterSpec) (plan.UpdateInput, error) {
+	store := &state.Store{Root: a.Root, Cluster: name}
+	st, err := store.Load()
+	if err != nil {
+		return plan.UpdateInput{}, err
+	}
+	current, err := spec.Load(store.Path("spec.yaml"))
+	if err != nil {
+		return plan.UpdateInput{}, err
+	}
+	to := st.K3sVersion
+	if k3s.IsExactVersion(target.K3s.Version) {
+		to = target.K3s.Version
+	}
+	return plan.UpdateInput{Current: current, Layout: st.Layout, FromVersion: st.K3sVersion, Target: target, ToVersion: to, OpID: "live"}, nil
+}

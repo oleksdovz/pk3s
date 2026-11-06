@@ -171,6 +171,7 @@ func (m Model) onFKey(n int) (tea.Model, tea.Cmd) {
 func (m Model) startNew() (tea.Model, tea.Cmd) {
 	m.spec = spec.Default()
 	m.spec.Name = ""
+	m.editName, m.layout = "", nil
 	app.ApplyInventoryDefaults(&m.spec, m.inv)
 	m.secIdx, m.fieldIdx, m.focus = 0, 0, 1
 	m.revalidate()
@@ -186,7 +187,12 @@ func (m Model) editCluster(name string) (tea.Model, tea.Cmd) {
 		m.flash = err.Error()
 		return m, nil
 	}
-	m.spec = s
+	in, err := m.be.UpdateInput(name, s)
+	if err != nil {
+		m.flash = err.Error()
+		return m, nil
+	}
+	m.spec, m.editName, m.layout = s, name, in.Layout
 	m.secIdx, m.fieldIdx, m.focus = 0, 0, 1
 	m.revalidate()
 	m.screen = scrWizard
