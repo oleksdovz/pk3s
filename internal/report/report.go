@@ -122,16 +122,34 @@ func Status(r *app.StatusReport) string {
 	if r.K8sError != "" {
 		fmt.Fprintf(&b, "\n%s\n", r.K8sError)
 	}
-	done, failed := 0, ""
+	done, failed, matched := 0, "", 0
 	for _, st := range r.StepOrder {
-		switch r.Steps[st.ID].Status {
+		ss, ok := r.Steps[st.ID]
+		if ok {
+			matched++
+		}
+		switch ss.Status {
 		case state.StatusDone:
 			done++
 		case state.StatusFailed:
-			failed = st.Title + ": " + r.Steps[st.ID].Error
+			failed = st.Title + ": " + ss.Error
 		}
 	}
-	fmt.Fprintf(&b, "\nDeployment steps: %d/%d done\n", done, len(r.StepOrder))
+	total := len(r.StepOrder)
+	if matched == 0 && len(r.Steps) > 0 {
+		// Deployed by an older pk3s with different step names: count the
+		// steps recorded in the state instead.
+		done, total = 0, len(r.Steps)
+		for id, ss := range r.Steps {
+			switch ss.Status {
+			case state.StatusDone:
+				done++
+			case state.StatusFailed:
+				failed = id + ": " + ss.Error
+			}
+		}
+	}
+	fmt.Fprintf(&b, "\nDeployment steps: %d/%d done\n", done, total)
 	if failed != "" {
 		fmt.Fprintf(&b, "Last failure: %s\n", failed)
 	}
