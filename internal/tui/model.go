@@ -31,6 +31,10 @@ type Backend interface {
 	LoadForResume(ctx context.Context, name string) (*plan.Plan, error)
 	NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (*app.Session, error)
 	LoadSpec(name string) (spec.ClusterSpec, error)
+	ExportSpec(ctx context.Context, name string) (string, error)
+	PlanDestroy(ctx context.Context, name string) (*app.DestroyPlan, error)
+	Destroy(ctx context.Context, dp *app.DestroyPlan, progress func(string)) error
+	Logf(format string, args ...any)
 	StateRoot() string
 }
 
@@ -47,6 +51,7 @@ const (
 	scrRunning
 	scrDone
 	scrStatus
+	scrDestroy
 )
 
 // Messages.
@@ -120,6 +125,17 @@ type Model struct {
 	// status
 	statusName string
 	statusText string
+
+	// navigation
+	help      bool
+	reviewSel bool // "Review plan & deploy" entry selected in the page list
+
+	// destroy
+	destroy     *app.DestroyPlan
+	destroyLog  []string
+	destroyErr  error
+	destroying  bool
+	destroyDone bool
 }
 
 // New creates the model.
@@ -239,6 +255,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = scrDone
 		m.clusters, _ = m.be.Clusters()
 		return m, nil
+	case destroyPlanMsg:
+		return m.onDestroyPlan(msg)
+	case destroyDoneMsg:
+		m.destroying, m.destroyDone = false, true
+		m.destroyLog, m.destroyErr = msg.log, msg.err
+		m.clusters, _ = m.be.Clusters()
+		return m, nil
+	case exportMsg:
+		if msg.err != nil {
+			m.flash = "export: " + msg.err.Error()
+		} else {
+			m.flash = "Deployed spec written to " + msg.path + "  (edit it and run: pk3s apply -f " + msg.path + ")"
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -247,20 +277,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
-	if m.screen == scrRunning {
-		if key == "ctrl+c" {
-			if !m.stopAsked {
-				m.stopAsked = true
-				m.session.Engine.RequestStop()
-				m.flash = "Stopping after the current step. Press Ctrl+C again to abort the step."
-			} else if m.cancelRun != nil {
-				m.cancelRun()
-			}
+	if m.help {
+		if key == "esc" || fkey(k) == fHelp || key == "enter" || key == "q" {
+			m.help = false
 		}
 		return m, nil
 	}
-	if key == "ctrl+c" || (key == "f10" && !m.editing) {
+	if m.screen == scrRunning {
+		if key == "ctrl+c" {
+			return m.requestStop()
+		}
+		if n := fkey(k); n > 0 {
+			return m.onFKey(n)
+		}
+		return m, nil
+	}
+	if key == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if n := fkey(k); n > 0 && !(m.screen == scrWizard && m.editing) {
+		m.flash = ""
+		return m.onFKey(n)
 	}
 	m.flash = ""
 	switch m.screen {
@@ -276,6 +313,8 @@ func (m Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.keyReview(k)
 	case scrConfirm:
 		return m.keyConfirm(k)
+	case scrDestroy:
+		return m.keyDestroy(k)
 	case scrDone:
 		if key == "enter" || key == "esc" {
 			m.screen = scrMenu
@@ -295,16 +334,7 @@ func (m Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			return m, m.loadStatus(m.statusName)
 		case "e":
-			s, err := m.be.LoadSpec(m.statusName)
-			if err != nil {
-				m.flash = err.Error()
-				return m, nil
-			}
-			m.spec = s
-			m.secIdx, m.fieldIdx, m.focus = 0, 0, 1
-			m.revalidate()
-			m.screen = scrWizard
-			m.flash = "Editing the deployed cluster: change agents, servers, resources or k3s version, then F9."
+			return m.editCluster(m.statusName)
 		}
 	}
 	return m, nil
@@ -321,12 +351,7 @@ func (m Model) keyMenu(key string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "enter":
 		if m.menuIdx == 0 {
-			m.spec = spec.Default()
-			app.ApplyInventoryDefaults(&m.spec, m.inv)
-			m.secIdx, m.fieldIdx, m.focus = 0, 0, 1
-			m.revalidate()
-			m.screen = scrWizard
-			return m, nil
+			return m.startNew()
 		}
 		m.statusName = m.clusters[m.menuIdx-1]
 		m.statusText = ""
@@ -364,6 +389,7 @@ func (m Model) keyWizard(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.fieldErr = err.Error()
 				return m, nil
 			}
+			m.be.Logf("tui [%s] %s / %s = %q", m.spec.Name, m.sections[m.secIdx].title, f.label, f.get(&m.spec))
 			m.editing, m.fieldErr = false, ""
 			m.input.Blur()
 			m.revalidate()
@@ -382,27 +408,37 @@ func (m Model) keyWizard(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "tab", "shift+tab":
 		m.focus = 1 - m.focus
+		if m.focus == 1 {
+			m.reviewSel = false
+		}
 	case "esc":
 		m.screen = scrMenu
-	case "f9", "ctrl+r":
-		m.screen = scrPreparing
-		s, inv := m.spec, m.inv
-		return m, tea.Batch(m.spin.Tick, func() tea.Msg {
-			prep, err := m.be.Prepare(m.ctx, s, inv)
-			return preparedMsg{prep, err}
-		})
-	case "f2", "ctrl+s":
+	case "ctrl+r":
+		return m.startPlan()
+	case "ctrl+s":
 		m.flash = m.saveSpec()
 	case "up", "k":
-		if m.focus == 0 {
-			m.secIdx = (m.secIdx + len(m.sections) - 1) % len(m.sections)
+		if m.focus == 0 && m.reviewSel {
+			m.reviewSel = false
+		} else if m.focus == 0 {
+			if m.secIdx == 0 {
+				m.reviewSel = true
+			} else {
+				m.secIdx--
+			}
 			m.fieldIdx = 0
 		} else if m.fieldIdx > 0 {
 			m.fieldIdx--
 		}
 	case "down", "j":
-		if m.focus == 0 {
-			m.secIdx = (m.secIdx + 1) % len(m.sections)
+		if m.focus == 0 && m.reviewSel {
+			m.reviewSel, m.secIdx = false, 0
+		} else if m.focus == 0 {
+			if m.secIdx == len(m.sections)-1 {
+				m.reviewSel = true
+			} else {
+				m.secIdx++
+			}
 			m.fieldIdx = 0
 		} else if m.fieldIdx < len(m.sections[m.secIdx].fields)-1 {
 			m.fieldIdx++
@@ -426,6 +462,9 @@ func (m Model) keyWizard(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus = 1
 		}
 	case "enter", " ":
+		if m.focus == 0 && m.reviewSel {
+			return m.startPlan()
+		}
 		if m.focus == 0 {
 			m.focus = 1
 			return m, nil
@@ -436,6 +475,7 @@ func (m Model) keyWizard(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case f.kind == kindToggle:
 			_ = f.set(&m.spec, yesNo(f.get(&m.spec) != "yes"))
+			m.be.Logf("tui [%s] %s / %s = %s", m.spec.Name, m.sections[m.secIdx].title, f.label, f.get(&m.spec))
 			m.revalidate()
 		case f.kind == kindChoice && !f.custom && key == "enter":
 			m.cycle(f, 1)
@@ -460,6 +500,7 @@ func (m *Model) cycle(f *field, dir int) {
 	}
 	idx = (idx + dir + len(f.options)) % len(f.options)
 	_ = f.set(&m.spec, f.options[idx])
+	m.be.Logf("tui [%s] %s = %s", m.spec.Name, f.label, f.options[idx])
 	m.revalidate()
 }
 
@@ -472,6 +513,7 @@ func (m Model) saveSpec() string {
 	if err := spec.Save(path, m.spec); err != nil {
 		return "save failed: " + err.Error()
 	}
+	m.be.Logf("tui: spec of %q saved to %s", m.spec.Name, path)
 	wd, _ := os.Getwd()
 	return "Saved " + wd + "/" + path + "  (use: pk3s apply -f " + path + ")"
 }
@@ -496,7 +538,7 @@ func (m Model) onPrepared(msg preparedMsg) (tea.Model, tea.Cmd) {
 	if msg.prep.Findings.HasErrors() {
 		b.WriteString("\n" + stErr.Render("Fix the errors above (Esc returns to the wizard). Nothing was changed.") + "\n")
 	} else {
-		b.WriteString("\n" + stOK.Render("Ready. Press Enter to deploy, Esc to edit.") + "\n")
+		b.WriteString("\n" + stOK.Render("Ready. Press Enter (or F9) to deploy, Esc to edit.") + "\n")
 	}
 	m.view.SetContent(b.String())
 	m.view.GotoTop()
@@ -524,7 +566,7 @@ func (m Model) keyReview(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "backspace":
 		m.screen = scrWizard
 		return m, nil
-	case "f2", "ctrl+s":
+	case "ctrl+s":
 		m.flash = m.saveSpec()
 		return m, nil
 	case "enter":
@@ -562,6 +604,7 @@ func (m Model) keyConfirm(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.confirm.Blur()
+		m.be.Logf("tui: %s of %q confirmed (resume=%v)", m.plan.Mode, m.plan.Spec.Name, m.resume)
 		return m.startRun()
 	}
 	var cmd tea.Cmd

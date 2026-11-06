@@ -58,16 +58,26 @@ CGO_ENABLED=0 go build -o /usr/local/bin/pk3s ./cmd/pk3s
 pk3s
 ```
 
-| Key | Action |
-|-----|--------|
-| `Tab` | switch between the page list and the form |
-| `↑↓` / `PgUp` `PgDn` | move between fields / pages |
-| `Enter` | edit a field, toggle, or cycle a choice |
-| `←→` | pick from a list (storage, bridge, template, profile) |
-| `F2` | save the spec as `<name>.yaml` |
-| `F9` | build and review the plan |
-| `Esc` | back |
-| `F10` | quit |
+Midnight-Commander-style function keys; the same verb is on the same key on
+every screen (dimmed when not available). If the terminal captures F-keys,
+use `Alt+1` … `Alt+0`.
+
+| Key | Verb |
+|-----|------|
+| `F1` | Help for the current screen |
+| `F2` | Save the spec as `<name>.yaml` |
+| `F3` | View cluster status (Refresh on the status screen) |
+| `F4` | Edit: a field in the wizard; a deployed cluster (scale, upgrade, resize) |
+| `F5` | New cluster |
+| `F6` | Resume an interrupted operation |
+| `F7` | Export the deployed spec to `<name>.yaml` |
+| `F8` | Destroy (type the cluster name to confirm) |
+| `F9` | Plan in the wizard; Apply on the plan review |
+| `F10` | Quit (Stop while a deployment runs) |
+
+In the wizard: `Tab` switches panels, `↑↓`/`PgUp`/`PgDn` move, `Enter` edits,
+`←→` picks from a list, `Space` toggles. The page list ends with
+**▶ Review plan & deploy**.
 
 Wizard pages: Cluster, Topology, Resources, Storage, Network, Node network
 (per-container IP/gateway/DNS), Persistent data, k3s, OS & access, and Security & host.
@@ -195,7 +205,8 @@ More complete examples are in [examples/](examples/).
 | `/var/lib/pk3s/clusters/<name>/state.json` | step progress and the ledger of created resources |
 | `/var/lib/pk3s/clusters/<name>/secrets.json` | join tokens (0600) |
 | `/var/lib/pk3s/clusters/<name>/kubeconfig` | admin kubeconfig pointing at the first server (0600) |
-| `/var/lib/pk3s/clusters/<name>/pk3s.log` | redacted event log |
+| `/var/log/pk3s/pk3s.log` | activity log of everything pk3s does: session start, host scan, every executed command (exit code, duration, stderr on failure; never stdout), validation results, TUI edits and confirmations, deployment steps, destroy (redacted, 0600, rotated at 10 MiB) |
+| `/var/lib/pk3s/clusters/<name>/pk3s.log` | deployment steps of one cluster |
 | `/var/lib/pk3s/cache/k3s/<version>/` | verified k3s binaries |
 | `/etc/modules-load.d/pk3s.conf` | host kernel modules (if enabled) |
 

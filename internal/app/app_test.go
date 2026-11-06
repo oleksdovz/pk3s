@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -186,5 +188,23 @@ func TestInitExportsExistingCluster(t *testing.T) {
 	back, err := spec.Parse([]byte(res.Content))
 	if err != nil || back.Agents != cur.Agents || back.Network.FirstIP != cur.Network.FirstIP {
 		t.Fatalf("exported spec wrong: %v %+v", err, back)
+	}
+}
+
+func TestNoStateErrorExplainsDestroyedCluster(t *testing.T) {
+	root := t.TempDir()
+	a := &App{Root: root, R: runner.NewFake(), Redactor: &runner.Redactor{}}
+	if err := a.NoStateError("lab"); !strings.Contains(err.Error(), "no clusters yet") {
+		t.Fatal(err)
+	}
+	seed(t, root, deployedSpec())
+	if err := a.NoStateError("other"); !strings.Contains(err.Error(), "known clusters: lab") {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "clusters", ".destroyed", "old-20261106T190901Z"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Status(context.Background(), "old"); err == nil || !strings.Contains(err.Error(), `cluster "old" was destroyed by pk3s at 2026-11-06`) {
+		t.Fatal(err)
 	}
 }

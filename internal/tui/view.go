@@ -17,8 +17,7 @@ import (
 // View implements tea.Model.
 func (m Model) View() string {
 	w := max(m.width, 60)
-	var body string
-	keys := []string{"10", "Quit"}
+	var body, hint string
 	switch m.screen {
 	case scrLoading:
 		body = "\n  " + m.spin.View() + " Reading Proxmox inventory (pvesh)..."
@@ -26,40 +25,49 @@ func (m Model) View() string {
 		body = "\n  " + stErr.Render(m.err.Error()) + "\n\n  pk3s must run as root on a Proxmox VE host.\n  Press Enter to exit."
 	case scrMenu:
 		body = m.viewMenu()
-		keys = []string{"Enter", "Open", "10", "Quit"}
+		hint = "↑↓ select  Enter open"
 	case scrWizard:
 		body = m.viewWizard(w)
 		if m.editing {
-			keys = []string{"Enter", "Accept", "Esc", "Cancel"}
+			hint = "Enter accept  Esc cancel"
 		} else {
-			keys = []string{"Tab", "Panel", "Enter", "Edit", "←→", "Choose", "PgDn", "Next page", "2", "Save", "9", "Plan", "Esc", "Menu", "10", "Quit"}
+			hint = "Tab panel  ↑↓ move  PgUp/PgDn page  Enter edit  ←→ choose  Space toggle  Esc menu"
 		}
 	case scrPreparing:
 		body = "\n  " + m.spin.View() + " Resolving k3s version, probing IP addresses and validating the plan..."
 	case scrReview:
-		body = stPanelFocus.Width(w - 2).Render(stTitle.Render("Deployment plan (nothing has been changed yet)") + "\n" + m.view.View())
-		keys = []string{"↑↓", "Scroll", "Enter", "Deploy", "2", "Save", "Esc", "Back", "10", "Quit"}
+		title := "Deployment plan (nothing has been changed yet)"
+		if m.canApply() {
+			title += "   " + stSel.Render(" Enter / F9 = Deploy ")
+		}
+		body = stPanelFocus.Width(w - 2).Render(stTitle.Render(title) + "\n" + m.view.View())
+		hint = "↑↓ PgUp PgDn scroll  Enter deploy  Esc back"
 	case scrConfirm:
 		body = m.viewConfirm()
-		keys = []string{"Enter", "Confirm", "Esc", "Back"}
+		hint = "Enter confirm  Esc back"
 	case scrRunning:
 		body = m.viewRunning(w)
-		keys = []string{"^C", "Stop after step"}
+		hint = "F10 / Ctrl+C stop after the current step"
 	case scrDone:
 		body = m.viewDone(w)
-		keys = []string{"Enter", "Menu", "q", "Quit"}
+		hint = "Enter main menu"
 	case scrStatus:
 		body = m.viewStatus(w)
-		keys = []string{"e", "Edit / scale / upgrade", "r", "Resume", "s", "Refresh", "Esc", "Back"}
+		hint = "Esc back"
+	case scrDestroy:
+		body = m.viewDestroy(w)
+		hint = "Enter confirm  Esc cancel"
+	}
+	if m.help {
+		body = stModal.Width(min(w-4, 100)).Render(stTitle.Render("Help") + "\n\n" + m.helpText())
 	}
 
 	header := stHeader.Width(w).Render(m.headerText())
-	footer := m.keyBar(keys, w)
 	flash := ""
 	if m.flash != "" {
 		flash = stWarn.Render(" " + m.flash)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, flash, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, header, body, flash, stDim.Render(" "+hint), m.fkeyBar(w))
 }
 
 func (m Model) headerText() string {
@@ -70,12 +78,76 @@ func (m Model) headerText() string {
 	return s
 }
 
-func (m Model) keyBar(keys []string, w int) string {
-	var parts []string
-	for i := 0; i+1 < len(keys); i += 2 {
-		parts = append(parts, stKey.Render(keys[i])+stKeyLabel.Render(keys[i+1]))
+// fkeyBar renders the Midnight-Commander-style bar: ten equal slots,
+// number then label; unavailable slots are dimmed.
+func (m Model) fkeyBar(w int) string {
+	labels := m.fkeyLabels()
+	slot := max(6, w/10)
+	var b strings.Builder
+	for n := 1; n <= 10; n++ {
+		num := fmt.Sprintf("%d", n)
+		label := labels[n]
+		width := slot - len(num)
+		if n == 10 {
+			width = max(1, w-9*slot-len(num))
+		}
+		if label == "" {
+			b.WriteString(stDim.Render(num) + strings.Repeat(" ", max(0, width)))
+			continue
+		}
+		b.WriteString(stKeyLabel.Render(num) + stKey.Render(padRight(truncate(label, width), width)))
 	}
-	return lipgloss.NewStyle().Width(w).Render(strings.Join(parts, " "))
+	return b.String()
+}
+
+func padRight(s string, n int) string {
+	if r := n - lipgloss.Width(s); r > 0 {
+		return s + strings.Repeat(" ", r)
+	}
+	return s
+}
+
+func (m Model) viewDestroy(w int) string {
+	var b strings.Builder
+	dp := m.destroy
+	b.WriteString(stTitle.Render("Destroy cluster "+dp.Cluster) + "\n\n")
+	for _, c := range dp.Containers {
+		switch {
+		case c.Exists && c.Owned:
+			fmt.Fprintf(&b, "  CT %d: %s\n", c.CTID, stErr.Render("will be stopped and destroyed"))
+		default:
+			fmt.Fprintf(&b, "  CT %d: %s\n", c.CTID, c.Reason)
+		}
+	}
+	if len(dp.Containers) == 0 {
+		b.WriteString("  No containers recorded for this cluster.\n")
+	}
+	if len(dp.Kept) > 0 {
+		b.WriteString("\nKept (never deleted automatically):\n")
+		for _, r := range dp.Kept {
+			fmt.Fprintf(&b, "  %s %s\n", r.Kind, r.ID)
+		}
+	}
+	switch {
+	case m.destroying:
+		b.WriteString("\n" + m.spin.View() + " destroying...\n")
+	case m.destroyDone:
+		b.WriteString("\n")
+		for _, l := range m.destroyLog {
+			b.WriteString("  " + l + "\n")
+		}
+		if m.destroyErr != nil {
+			b.WriteString(stErr.Render("Destroy failed: "+m.destroyErr.Error()) + "\n")
+		} else {
+			b.WriteString(stOK.Render("Cluster destroyed.") + "\n")
+		}
+		b.WriteString("\nPress Enter to return to the main menu.")
+	case dp.Blocked():
+		b.WriteString("\n" + stErr.Render("Blocked: a container no longer carries the cluster tag. Nothing will be destroyed.") + "\n")
+	default:
+		b.WriteString("\nType the cluster name to confirm: " + m.confirm.View())
+	}
+	return stModal.Width(min(w-4, 100)).Render(b.String())
 }
 
 func (m Model) viewMenu() string {
@@ -131,7 +203,16 @@ func (m Model) viewWizard(w int) string {
 		}
 		left.WriteString(line + "\n")
 	}
-	left.WriteString("\n" + stDim.Render(" F9: review plan"))
+	review := "▶ Review plan & deploy"
+	switch {
+	case m.reviewSel && m.focus == 0:
+		review = stSel.Render(" " + review + "  ")
+	case m.findings.HasErrors():
+		review = stDim.Render(" " + review)
+	default:
+		review = stOK.Render(" " + review)
+	}
+	left.WriteString("\n" + review + "\n" + stDim.Render("  (F9 / Alt+9)"))
 	leftStyle := stPanel
 	if m.focus == 0 {
 		leftStyle = stPanelFocus

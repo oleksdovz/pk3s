@@ -40,8 +40,14 @@ func (f *fakeBackend) LoadForResume(context.Context, string) (*plan.Plan, error)
 func (f *fakeBackend) NewSession(*plan.Plan, bool, func(engine.Event)) (*app.Session, error) {
 	return nil, nil
 }
-func (f *fakeBackend) StateRoot() string                         { return "/var/lib/pk3s" }
-func (f *fakeBackend) LoadSpec(string) (spec.ClusterSpec, error) { return spec.ClusterSpec{}, nil }
+func (f *fakeBackend) StateRoot() string                                  { return "/var/lib/pk3s" }
+func (f *fakeBackend) LoadSpec(string) (spec.ClusterSpec, error)          { return spec.ClusterSpec{}, nil }
+func (f *fakeBackend) ExportSpec(context.Context, string) (string, error) { return "/tmp/x.yaml", nil }
+func (f *fakeBackend) PlanDestroy(context.Context, string) (*app.DestroyPlan, error) {
+	return &app.DestroyPlan{Cluster: "lab"}, nil
+}
+func (f *fakeBackend) Destroy(context.Context, *app.DestroyPlan, func(string)) error { return nil }
+func (f *fakeBackend) Logf(string, ...any)                                           {}
 
 func send(t *testing.T, m Model, msgs ...tea.Msg) Model {
 	t.Helper()
@@ -74,7 +80,7 @@ func collect(cmd tea.Cmd) []tea.Msg {
 			return
 		}
 		switch msg.(type) {
-		case invMsg, preparedMsg, statusMsg, resumeMsg:
+		case invMsg, preparedMsg, statusMsg, resumeMsg, destroyPlanMsg, destroyDoneMsg, exportMsg:
 			ch <- []tea.Msg{msg}
 		default:
 			ch <- nil
@@ -102,6 +108,14 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEsc}
 	case "f9":
 		return tea.KeyMsg{Type: tea.KeyF9}
+	case "f1":
+		return tea.KeyMsg{Type: tea.KeyF1}
+	case "f8":
+		return tea.KeyMsg{Type: tea.KeyF8}
+	case "f10":
+		return tea.KeyMsg{Type: tea.KeyF10}
+	case "alt+9":
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}, Alt: true}
 	case "ctrl+u":
 		return tea.KeyMsg{Type: tea.KeyCtrlU}
 	}
@@ -181,6 +195,7 @@ func editField(t *testing.T, m Model, label, value string) Model {
 func TestEditPrefixAndPerNodeNetworkThenPlan(t *testing.T) {
 	m, be := newModel(t)
 	m = send(t, m, key("enter"))
+	m = editField(t, m, "Cluster name", "lab")
 	m = editField(t, m, "Hostname prefix", "k3s-lab")
 	m = gotoPage(t, m, "Network")
 	m = editField(t, m, "First IP", "192.168.0.51")
@@ -241,6 +256,7 @@ func TestInvalidNumberShowsFieldError(t *testing.T) {
 func TestClearingOverrideRestoresDefault(t *testing.T) {
 	m, _ := newModel(t)
 	m = send(t, m, key("enter"))
+	m = editField(t, m, "Cluster name", "k3s")
 	m = gotoPage(t, m, "Node network")
 	m = editField(t, m, "k3s-node1 gateway", "192.168.0.254")
 	if _, ok := m.spec.Override("node1"); !ok {
@@ -249,5 +265,82 @@ func TestClearingOverrideRestoresDefault(t *testing.T) {
 	m = editField(t, m, "k3s-node1 gateway", "")
 	if _, ok := m.spec.Override("node1"); ok {
 		t.Fatal("empty override should be removed")
+	}
+}
+
+func TestFKeyBarAndHelp(t *testing.T) {
+	m, _ := newModel(t)
+	l := m.fkeyLabels()
+	if l[fNew] != "New" || l[fQuit] != "Quit" || l[fDestroy] != "" {
+		t.Fatalf("menu without a selected cluster: %v", l)
+	}
+	m.clusters, m.menuIdx = []string{"lab"}, 1
+	l = m.fkeyLabels()
+	if l[fView] != "View" || l[fEdit] != "Edit" || l[fDestroy] != "Destroy" || l[fExport] != "Export" {
+		t.Fatalf("menu with a selected cluster: %v", l)
+	}
+	bar := m.fkeyBar(140)
+	for _, want := range []string{"1", "Help", "8", "Destroy", "10", "Quit"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("bar missing %q: %s", want, bar)
+		}
+	}
+	m = send(t, m, key("f1"))
+	if !m.help || !strings.Contains(m.View(), "Main menu: clusters managed by pk3s") {
+		t.Fatal("F1 should open help")
+	}
+	m = send(t, m, key("esc"))
+	if m.help {
+		t.Fatal("Esc should close help")
+	}
+}
+
+func TestReviewEntryAndAltFallback(t *testing.T) {
+	m, _ := newModel(t)
+	m = send(t, m, key("enter"))
+	m = editField(t, m, "Cluster name", "lab")
+	m = gotoPage(t, m, "Network")
+	m = editField(t, m, "First IP", "192.168.0.60")
+	m = gotoPage(t, m, "Security & host")
+	m.focus = 1
+	for i, f := range m.sections[m.secIdx].fields {
+		if strings.HasPrefix(f.label, "I accept") {
+			m.fieldIdx = i
+		}
+	}
+	m = send(t, m, key(" "))
+	// The page list ends with "Review plan & deploy".
+	m.focus = 0
+	m = send(t, m, key("down"))
+	if !m.reviewSel || !strings.Contains(m.View(), "Review plan & deploy") {
+		t.Fatal("review entry not selected")
+	}
+	m = send(t, m, key("enter"))
+	if m.screen != scrReview {
+		t.Fatalf("Enter on the review entry should show the plan, got %v (%s)", m.screen, m.flash)
+	}
+	// Alt+9 works like F9 and leads to the typed confirmation.
+	m = send(t, m, key("alt+9"))
+	if m.screen != scrConfirm {
+		t.Fatalf("Alt+9 should apply, got %v", m.screen)
+	}
+}
+
+func TestDestroyNeedsExactName(t *testing.T) {
+	m, _ := newModel(t)
+	m.clusters, m.menuIdx = []string{"lab"}, 1
+	m = send(t, m, key("f8"))
+	if m.screen != scrDestroy {
+		t.Fatalf("F8 should open destroy, got %v", m.screen)
+	}
+	m = send(t, m, typeText("la")...)
+	m = send(t, m, key("enter"))
+	if m.destroying || m.destroyDone {
+		t.Fatal("wrong name must not destroy")
+	}
+	m = send(t, m, typeText("b")...)
+	m = send(t, m, key("enter"))
+	if !m.destroyDone || m.destroyErr != nil {
+		t.Fatalf("destroy should run after typing the name: done=%v err=%v", m.destroyDone, m.destroyErr)
 	}
 }

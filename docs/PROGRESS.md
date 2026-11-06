@@ -26,6 +26,11 @@ unless stated explicitly.
 
 - (done) `pk3s init NAME`: host scan into an annotated starter spec (alternatives commented, free CT IDs checked), or export of the deployed spec for an existing cluster. Verified read-only on `hp`.
 
+- (done) TUI: Midnight-Commander F1..F10 bar (Help, Save, View, Edit, New, Resume, Export, Destroy, Plan/Apply, Quit/Stop), Alt+digit fallback, "Review plan & deploy" entry, F1 help, destroy from the TUI with typed name.
+- (done) Activity log /var/log/pk3s/pk3s.log (commands, validation, TUI edits, confirmations, steps, errors). Verified on `hp`.
+- (done) Clear errors for destroyed/unknown clusters.
+- `lab` on `hp` was destroyed by the owner with `pk3s destroy` at 2026-11-06 21:09 (archive in /var/lib/pk3s/clusters/.destroyed/).
+
 ## Next
 - (done) TUI model tests, spec/state/runner tests.
 - (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.

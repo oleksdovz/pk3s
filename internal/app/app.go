@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/oleksdovz/pk3s/internal/engine"
 	"github.com/oleksdovz/pk3s/internal/k3s"
+	"github.com/oleksdovz/pk3s/internal/logx"
 	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/pve"
 	"github.com/oleksdovz/pk3s/internal/runner"
@@ -27,23 +29,52 @@ type App struct {
 	Redactor *runner.Redactor
 	// Probe live network/filesystem state during validation.
 	LiveProbes bool
+	Version    string
+	// Log is the activity log (nil disables logging).
+	Log *logx.Logger
 }
 
-// New creates an App executing real commands. logLine receives every
-// executed command line (already redacted).
-func New(root string, logLine func(string)) *App {
-	red := &runner.Redactor{}
-	ex := runner.Exec{Log: func(l string) {
-		if logLine != nil {
-			logLine(red.Redact(l))
-		}
-	}}
-	return &App{Root: root, R: ex, Fetch: k3s.NewFetcher(), Redactor: red, LiveProbes: true}
+// DefaultLogDir holds the activity log.
+const DefaultLogDir = "/var/log/pk3s"
+
+// Logf writes to the activity log.
+func (a *App) Logf(format string, args ...any) { a.Log.Printf(format, args...) }
+
+// OpenLog opens <dir>/pk3s.log (dir 0700, file 0600). Every executed
+// command is logged from then on.
+func (a *App) OpenLog(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	_ = os.Chmod(dir, 0o700)
+	l, err := logx.Open(filepath.Join(dir, "pk3s.log"), a.Redactor)
+	if err != nil {
+		return err
+	}
+	a.Log = l
+	if ex, ok := a.R.(runner.Exec); ok {
+		ex.Log = func(line string) { l.Printf("%s", line) }
+		a.R = ex
+	}
+	return nil
+}
+
+// New creates an App executing real commands. Call OpenLog to enable the
+// activity log.
+func New(root string) *App {
+	return &App{Root: root, R: runner.Exec{}, Fetch: k3s.NewFetcher(), Redactor: &runner.Redactor{}, LiveProbes: true}
 }
 
 // Inventory collects host inventory.
 func (a *App) Inventory(ctx context.Context) (*pve.Inventory, error) {
-	return pve.Client{R: a.R}.Collect(ctx)
+	inv, err := pve.Client{R: a.R}.Collect(ctx)
+	if err != nil {
+		a.Logf("inventory failed: %v", err)
+		return nil, err
+	}
+	a.Logf("inventory: node %s, PVE %s, kernel %s, %s; %d storages, %d bridges, %d templates, %d guests, firewall=%v",
+		inv.Node, inv.PVEVersion, inv.Kernel, inv.Arch, len(inv.Storages), len(inv.Bridges), len(inv.Templates), len(inv.Guests), inv.FirewallOn)
+	return inv, nil
 }
 
 // ApplyInventoryDefaults fills environment-specific blanks in a spec from
@@ -116,6 +147,31 @@ type Prepared struct {
 // If pk3s already manages a cluster with this name, the result is an
 // update plan (diff against the deployed cluster) instead.
 func (a *App) Prepare(ctx context.Context, s spec.ClusterSpec, inv *pve.Inventory) (*Prepared, error) {
+	prep, err := a.prepare(ctx, s, inv)
+	a.logPrepared(s, prep, err)
+	return prep, err
+}
+
+func (a *App) logPrepared(s spec.ClusterSpec, prep *Prepared, err error) {
+	if a.Log == nil {
+		return
+	}
+	if err != nil {
+		a.Logf("plan %q failed: %v", s.Name, err)
+		return
+	}
+	if data, merr := spec.Marshal(s); merr == nil {
+		a.Logf("plan requested for cluster %q with spec:\n%s", s.Name, data)
+	}
+	if p := prep.Plan; p != nil {
+		a.Logf("plan %q: mode %s, k3s %s, %d nodes, %d steps, changes: %v", s.Name, p.Mode, p.K3sVersion, len(p.Nodes), len(p.Steps), p.Changes)
+	}
+	for _, f := range prep.Findings {
+		a.Logf("validation %s", f)
+	}
+}
+
+func (a *App) prepare(ctx context.Context, s spec.ClusterSpec, inv *pve.Inventory) (*Prepared, error) {
 	store := &state.Store{Root: a.Root, Cluster: s.Name}
 	recovered := false
 	if !store.Exists() {
@@ -251,11 +307,13 @@ func (a *App) NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (
 			if logFile != nil {
 				fmt.Fprintf(logFile, "%s %s\n", time.Now().UTC().Format(time.RFC3339), engine.FormatEvent(ev))
 			}
+			a.Logf("[%s] %s", p.Spec.Name, engine.FormatEvent(ev))
 			if notify != nil {
 				notify(ev)
 			}
 		},
 	}
+	a.Logf("session start: cluster %q, mode %s, resume=%v, k3s %s, %d steps", p.Spec.Name, p.Mode, resume, p.K3sVersion, len(p.Steps))
 	return &Session{Engine: eng, Store: store}, nil
 }
 
@@ -263,6 +321,9 @@ func (a *App) NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (
 // spec and pinned version.
 func (a *App) LoadForResume(ctx context.Context, name string) (*plan.Plan, error) {
 	store := &state.Store{Root: a.Root, Cluster: name}
+	if !store.Exists() {
+		return nil, a.NoStateError(name)
+	}
 	st, err := store.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load state for %q: %w", name, err)

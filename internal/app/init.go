@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/oleksdovz/pk3s/internal/pve"
@@ -75,4 +77,28 @@ func (a *App) starter(ctx context.Context, name string, inv *pve.Inventory, vers
 		opts.StableVersion = v
 	}
 	return starter.Render(s, inv, opts)
+}
+
+// ExportSpec writes the deployed spec of a cluster to <name>.yaml in the
+// current directory (a timestamped name if that file exists) and returns
+// the path.
+func (a *App) ExportSpec(ctx context.Context, name string) (string, error) {
+	res, err := a.InitSpec(ctx, name, a.Version)
+	if err != nil {
+		return "", err
+	}
+	if !res.Existing {
+		return "", fmt.Errorf("cluster %q is not deployed", name)
+	}
+	path := name + ".yaml"
+	if _, err := os.Stat(path); err == nil {
+		path = fmt.Sprintf("%s-%s.yaml", name, time.Now().Format("20060102-150405"))
+	}
+	if err := os.WriteFile(path, []byte(res.Content), 0o600); err != nil {
+		return "", err
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return path, nil
 }

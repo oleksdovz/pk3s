@@ -39,9 +39,12 @@ type StatusReport struct {
 // Status reports the current state of a cluster managed by pk3s.
 func (a *App) Status(ctx context.Context, name string) (*StatusReport, error) {
 	store := &state.Store{Root: a.Root, Cluster: name}
+	if !store.Exists() {
+		return nil, a.NoStateError(name)
+	}
 	st, err := store.Load()
 	if err != nil {
-		return nil, fmt.Errorf("no pk3s state for %q: %w", name, err)
+		return nil, fmt.Errorf("read pk3s state for %q: %w", name, err)
 	}
 	s, err := spec.Load(store.Path("spec.yaml"))
 	if err != nil {
@@ -125,9 +128,12 @@ func (d *DestroyPlan) Blocked() bool {
 // PlanDestroy inspects the ledger and verifies ownership of each container.
 func (a *App) PlanDestroy(ctx context.Context, name string) (*DestroyPlan, error) {
 	store := &state.Store{Root: a.Root, Cluster: name}
+	if !store.Exists() {
+		return nil, a.NoStateError(name)
+	}
 	st, err := store.Load()
 	if err != nil {
-		return nil, fmt.Errorf("no pk3s state for %q: %w", name, err)
+		return nil, fmt.Errorf("read pk3s state for %q: %w", name, err)
 	}
 	pct := pve.PCT{R: a.R}
 	dp := &DestroyPlan{Cluster: name}
@@ -193,6 +199,9 @@ func (a *App) Destroy(ctx context.Context, dp *DestroyPlan, progress func(string
 		return err
 	}
 	pct := pve.PCT{R: a.R}
+	a.Logf("destroy confirmed for cluster %q: %d containers", dp.Cluster, len(dp.Containers))
+	orig := progress
+	progress = func(s string) { a.Logf("[%s] destroy: %s", dp.Cluster, s); orig(s) }
 	for _, c := range dp.Containers {
 		if c.Exists {
 			progress(fmt.Sprintf("stopping and destroying CT %d", c.CTID))
@@ -230,4 +239,23 @@ func RecoveryHint(name, root string) string {
   * Inspect what exists:                       pk3s status %[1]s
   * Remove containers created by pk3s:         pk3s destroy %[1]s   (asks for confirmation)
 Existing guests that pk3s did not create are never modified or removed.`, name, root)
+}
+
+// NoStateError explains why a cluster has no state on this host.
+func (a *App) NoStateError(name string) error {
+	archives, _ := filepath.Glob(filepath.Join(a.Root, "clusters", ".destroyed", name+"-*"))
+	if len(archives) > 0 {
+		sort.Strings(archives)
+		last := archives[len(archives)-1]
+		when := strings.TrimPrefix(filepath.Base(last), name+"-")
+		if t, err := time.Parse("20060102T150405Z", when); err == nil {
+			when = t.Local().Format("2006-01-02 15:04:05")
+		}
+		return fmt.Errorf("cluster %q was destroyed by pk3s at %s; its archived state is in %s", name, when, last)
+	}
+	known, _ := state.List(a.Root)
+	if len(known) == 0 {
+		return fmt.Errorf("pk3s manages no cluster named %q on this host (no clusters yet; create one with: pk3s init NAME)", name)
+	}
+	return fmt.Errorf("pk3s manages no cluster named %q on this host; known clusters: %s", name, strings.Join(known, ", "))
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Cmd describes one external command invocation.
@@ -70,8 +71,34 @@ func IsExitError(err error) bool {
 
 // Exec runs commands on the local machine.
 type Exec struct {
-	// Log, if set, receives a line per command and its outcome.
+	// Log, if set, receives one line per finished command: the command,
+	// exit code, duration and, on failure, the end of stderr. Stdout is
+	// never logged (it may hold tokens or kubeconfigs); stdin only by size.
 	Log func(line string)
+}
+
+// LogLine formats the activity-log entry for a finished command.
+func LogLine(cmd Cmd, res Result, err error, d time.Duration) string {
+	line := "$ " + cmd.String()
+	if len(cmd.Stdin) > 0 {
+		line += fmt.Sprintf(" <stdin %d bytes>", len(cmd.Stdin))
+	}
+	line += fmt.Sprintf("  -> exit %d (%s)", res.ExitCode, d.Round(time.Millisecond))
+	if cmd.SecretOutput {
+		line += " [output not logged]"
+	}
+	if err != nil {
+		if res.ExitCode == 0 {
+			line += " error: " + err.Error()
+		}
+		if msg := strings.TrimSpace(string(res.Stderr)); msg != "" {
+			if len(msg) > 1500 {
+				msg = "..." + msg[len(msg)-1500:]
+			}
+			line += "\n" + msg
+		}
+	}
+	return line
 }
 
 // Run implements Runner.
@@ -83,16 +110,18 @@ func (e Exec) Run(ctx context.Context, cmd Cmd) (Result, error) {
 	if cmd.Stdin != nil {
 		c.Stdin = bytes.NewReader(cmd.Stdin)
 	}
-	if e.Log != nil {
-		e.Log("$ " + cmd.String())
-	}
+	start := time.Now()
 	err := c.Run()
 	res := Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}
+	if e.Log != nil {
+		defer func() { e.Log(LogLine(cmd, res, err, time.Since(start))) }()
+	}
 	if err != nil {
 		var xe *exec.ExitError
 		if errors.As(err, &xe) {
 			res.ExitCode = xe.ExitCode()
-			return res, &ExitError{Cmd: cmd.String(), ExitCode: res.ExitCode, Stderr: string(res.Stderr)}
+			err = &ExitError{Cmd: cmd.String(), ExitCode: res.ExitCode, Stderr: string(res.Stderr)}
+			return res, err
 		}
 		return res, fmt.Errorf("%s: %w", cmd.String(), err)
 	}

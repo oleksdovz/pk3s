@@ -43,6 +43,7 @@ Usage:
 
 Global flags:
   --root DIR                 state directory (default /var/lib/pk3s)
+  --log-dir DIR              activity log directory (default /var/log/pk3s)
 `
 
 func main() {
@@ -52,9 +53,9 @@ func main() {
 	}
 }
 
-func run(args []string) error {
-	root := state.DefaultRoot
-	// Extract --root anywhere in the arguments.
+func run(args []string) (err error) {
+	root, logDir := state.DefaultRoot, app.DefaultLogDir
+	// Extract --root / --log-dir anywhere in the arguments.
 	var rest []string
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -63,6 +64,11 @@ func run(args []string) error {
 			i++
 		case strings.HasPrefix(args[i], "--root="):
 			root = strings.TrimPrefix(args[i], "--root=")
+		case args[i] == "--log-dir" && i+1 < len(args):
+			logDir = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--log-dir="):
+			logDir = strings.TrimPrefix(args[i], "--log-dir=")
 		default:
 			rest = append(rest, args[i])
 		}
@@ -86,7 +92,21 @@ func run(args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer cancel()
 
-	a := app.New(root, nil)
+	a := app.New(root)
+	a.Version = version
+	if err := a.OpenLog(logDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: activity log disabled: %v\n", err)
+	}
+	defer a.Log.Close()
+	host, _ := os.Hostname()
+	a.Logf("pk3s %s start on %s: %s", version, host, strings.Join(append([]string{cmd}, rest...), " "))
+	defer func() {
+		if err != nil {
+			a.Logf("pk3s %s failed: %v", cmd, err)
+		} else {
+			a.Logf("pk3s %s done", cmd)
+		}
+	}()
 	switch cmd {
 	case "tui":
 		return tui.Run(ctx, a, version)
@@ -240,8 +260,10 @@ func cmdApply(ctx context.Context, a *app.App, args []string) error {
 		prompt = "\nType 'yes' to apply the changes above to the running cluster: "
 	}
 	if !confirm(prompt, "yes") {
+		a.Logf("apply of %q declined at confirmation", p.Spec.Name)
 		return errors.New("aborted; nothing was changed")
 	}
+	a.Logf("apply of %q confirmed (mode %s)", p.Spec.Name, p.Mode)
 	return execute(ctx, a, p, false)
 }
 
@@ -282,6 +304,9 @@ func execute(ctx context.Context, a *app.App, p *plan.Plan, resume bool) error {
 	if err := sess.Run(runCtx); err != nil {
 		fmt.Fprintln(os.Stderr, "\n"+err.Error())
 		fmt.Fprintln(os.Stderr, "\n"+app.RecoveryHint(p.Spec.Name, a.Root))
+		if a.Log != nil {
+			fmt.Fprintln(os.Stderr, "Full activity log: "+a.Log.Path)
+		}
 		return errors.New("deployment incomplete")
 	}
 	fmt.Println()
