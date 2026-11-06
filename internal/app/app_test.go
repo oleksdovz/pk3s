@@ -170,3 +170,21 @@ func TestRecoverStateFromConfigMap(t *testing.T) {
 		t.Errorf("layout/ledger not recovered: %+v", st)
 	}
 }
+
+func TestInitExportsExistingCluster(t *testing.T) {
+	root := t.TempDir()
+	cur := deployedSpec()
+	seed(t, root, cur)
+	a := &App{Root: root, R: testutil.HPFake(t), Redactor: &runner.Redactor{}}
+	res, err := a.InitSpec(context.Background(), "lab", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Existing || !strings.Contains(res.Content, `Deployed spec of cluster "lab"`) {
+		t.Fatalf("expected deployed spec export:\n%s", res.Content)
+	}
+	back, err := spec.Parse([]byte(res.Content))
+	if err != nil || back.Agents != cur.Agents || back.Network.FirstIP != cur.Network.FirstIP {
+		t.Fatalf("exported spec wrong: %v %+v", err, back)
+	}
+}

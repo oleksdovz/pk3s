@@ -24,6 +24,8 @@ unless stated explicitly.
 - (done) Cluster state ConfigMap `kube-system/pk3s-state` written after every apply; host state restored from it when missing.
 - (done) Scale-down sequence via kubectl on main1: cordon → drain → delete node → stop → destroy.
 
+- (done) `pk3s init NAME`: host scan into an annotated starter spec (alternatives commented, free CT IDs checked), or export of the deployed spec for an existing cluster. Verified read-only on `hp`.
+
 ## Next
 - (done) TUI model tests, spec/state/runner tests.
 - (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.

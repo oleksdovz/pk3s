@@ -77,8 +77,15 @@ you type `yes`.
 
 ### CLI
 
+`pk3s init NAME` scans the host (templates, storages, bridges, DNS, CT IDs
+and addresses in use) and writes an annotated spec. The chosen values are
+active, and every alternative found on the host is listed in a comment. If
+cluster NAME already exists, `init` exports its deployed spec instead, ready
+to edit and `apply`. Without redirection the spec goes to `NAME.yaml`; an
+existing file is only overwritten with `--force`.
+
 ```sh
-pk3s init > cluster.yaml         # starter spec filled from this host
+pk3s init lsb1-k3s > cluster.yaml   # scan the host: annotated starter spec
 $EDITOR cluster.yaml             # set network.first_ip, review the rest
 pk3s plan  -f cluster.yaml       # validate + show the plan (changes nothing)
 pk3s apply -f cluster.yaml       # plan, confirm with "yes", deploy
@@ -98,7 +105,7 @@ applies them one at a time after you type `yes`. In the TUI, open the
 cluster from the main menu and press `e`.
 
 ```sh
-cp /var/lib/pk3s/clusters/lab/spec.yaml lab.yaml   # the deployed spec
+pk3s init lab > lab.yaml                            # exports the deployed spec
 $EDITOR lab.yaml                                    # e.g. agents: 4 -> 3
 pk3s plan  -f lab.yaml                              # shows the diff only
 pk3s apply -f lab.yaml

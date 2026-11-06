@@ -27,7 +27,10 @@ const usage = `pk3s - deploy k3s clusters into Proxmox VE LXC containers
 
 Usage:
   pk3s                       start the interactive terminal UI
-  pk3s init                  print a starter cluster.yaml for this host
+  pk3s init NAME [-o FILE]   scan this host and write an annotated starter spec
+                             to NAME.yaml (or to stdout when redirected:
+                             pk3s init NAME > cluster.yaml). For an existing
+                             cluster, writes its deployed spec instead
   pk3s plan    -f FILE       validate FILE and show the deployment plan (no changes)
   pk3s apply   -f FILE       show the plan, ask for confirmation, deploy;
                              for an existing cluster: apply the changes in FILE
@@ -88,7 +91,7 @@ func run(args []string) error {
 	case "tui":
 		return tui.Run(ctx, a, version)
 	case "init":
-		return cmdInit(ctx, a)
+		return cmdInit(ctx, a, rest)
 	case "plan":
 		_, err := cmdPlan(ctx, a, rest)
 		return err
@@ -115,19 +118,61 @@ func run(args []string) error {
 	}
 }
 
-func cmdInit(ctx context.Context, a *app.App) error {
-	inv, err := a.Inventory(ctx)
+func cmdInit(ctx context.Context, a *app.App, args []string) error {
+	name, out, force := "", "", false
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "-o" && i+1 < len(args):
+			out = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "-o="):
+			out = strings.TrimPrefix(arg, "-o=")
+		case arg == "--force" || arg == "-force":
+			force = true
+		case strings.HasPrefix(arg, "-"):
+			return fmt.Errorf("unknown flag %s (usage: pk3s init NAME [-o FILE] [--force])", arg)
+		default:
+			if name != "" {
+				return fmt.Errorf("unexpected argument %q (usage: pk3s init NAME [-o FILE] [--force])", arg)
+			}
+			name = arg
+		}
+	}
+	if name == "" {
+		return errors.New("cluster name required: pk3s init NAME [-o FILE] [--force]  (e.g. pk3s init lsb1-k3s > cluster.yaml)")
+	}
+	if !spec.ValidName(name) {
+		return fmt.Errorf("invalid cluster name %q: 2-32 chars of lowercase letters, digits and '-', starting with a letter", name)
+	}
+	if out == "" {
+		out = name + ".yaml"
+		// `pk3s init NAME > file.yaml`: write the spec to the redirected stdout.
+		if fi, err := os.Stdout.Stat(); err == nil && fi.Mode()&os.ModeCharDevice == 0 {
+			out = "-"
+		}
+	}
+	if _, err := os.Stat(out); out != "-" && err == nil && !force {
+		return fmt.Errorf("%s already exists; use --force to overwrite or -o to choose another file", out)
+	}
+	res, err := a.InitSpec(ctx, name, version)
 	if err != nil {
 		return err
 	}
-	s := spec.Default()
-	app.ApplyInventoryDefaults(&s, inv)
-	data, err := spec.Marshal(s)
-	if err != nil {
+	if out == "-" {
+		fmt.Print(res.Content)
+		if res.Existing {
+			fmt.Fprintf(os.Stderr, "Cluster %q already exists: wrote its deployed spec.\n", name)
+		}
+		return nil
+	}
+	if err := os.WriteFile(out, []byte(res.Content), 0o600); err != nil {
 		return err
 	}
-	fmt.Print("# pk3s cluster spec. Fill in network.first_ip, review everything, then:\n#   pk3s plan -f cluster.yaml\n")
-	fmt.Print(string(data))
+	if res.Existing {
+		fmt.Printf("Cluster %q already exists: wrote its deployed spec to %s.\nEdit it and run: pk3s plan -f %s\n", name, out, out)
+	} else {
+		fmt.Printf("Scanned this host and wrote a starter spec to %s.\nSet network.first_ip, review the commented alternatives, then run: pk3s plan -f %s\n", out, out)
+	}
 	return nil
 }
 

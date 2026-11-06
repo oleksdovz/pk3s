@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -193,6 +194,12 @@ func Default() ClusterSpec {
 		Startup:  Startup{MainOrder: 1, MainDelaySec: 10, NodeOrder: 2, NodeDelaySec: 10},
 	}
 }
+
+// nameRe: cluster names and hostname prefixes (used in hostnames and tags).
+var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}[a-z0-9]$`)
+
+// ValidName reports whether name can be a cluster name or hostname prefix.
+func ValidName(name string) bool { return nameRe.MatchString(name) }
 
 // Prefix returns the effective hostname prefix.
 func (s ClusterSpec) Prefix() string {

@@ -47,7 +47,7 @@ ping are not detected.
 
 ```sh
 # on the test host, as root
-pk3s init > cluster.yaml
+pk3s init test-k3s > cluster.yaml
 # set first_ip to a free range, servers: 1, agents: 1 for the first try
 pk3s plan -f cluster.yaml      # read-only: inventory, ping, channel lookup
 ```

@@ -100,7 +100,6 @@ const (
 )
 
 var pkgRe = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
-var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}[a-z0-9]$`)
 
 // Spec validates fields that do not need a plan. It is safe to call on
 // partially filled specs (used live by the TUI).
@@ -110,10 +109,10 @@ func Spec(s spec.ClusterSpec, inv *pve.Inventory) Findings {
 		f = append(f, Finding{sev, field, fmt.Sprintf(msg, args...)})
 	}
 
-	if !nameRe.MatchString(s.Name) {
+	if !spec.ValidName(s.Name) {
 		add(Error, "name", "must be 2-32 chars of lowercase letters, digits and '-', starting with a letter")
 	}
-	if s.HostnamePrefix != "" && !nameRe.MatchString(s.HostnamePrefix) {
+	if s.HostnamePrefix != "" && !spec.ValidName(s.HostnamePrefix) {
 		add(Error, "hostname_prefix", "must be 2-32 chars of lowercase letters, digits and '-', starting with a letter")
 	}
 
