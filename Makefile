@@ -23,10 +23,12 @@ linux-bins:
 		gzip -9 -c dist/pk3s-linux-$$arch > $(EMBED)/pk3s-linux-$$arch.gz; \
 	done
 
-# All targets with embedded Linux binaries, plus checksums.
+# All targets plus checksums. Linux binaries come from linux-bins; the
+# others embed them for remote mode.
 dist: linux-bins
 	@for t in $(TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; ext=""; [ $$os = windows ] && ext=.exe; \
+		[ $$os = linux ] && continue; \
 		echo "build $$os/$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -tags embedlinux -trimpath -ldflags '$(LDFLAGS)' -o dist/pk3s-$$os-$$arch$$ext ./cmd/pk3s || exit 1; \
 	done

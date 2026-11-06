@@ -38,6 +38,24 @@ or interrupted deployment can be resumed.
 
 ## Install
 
+### From a release
+
+Every `v*` tag publishes binaries for Linux (amd64, arm64), macOS (arm64,
+amd64) and Windows (amd64, arm64) with `SHA256SUMS` on the
+[Releases](https://github.com/oleksdovz/pk3s/releases) page. The macOS and
+Windows builds contain the Linux binaries for remote mode (`--host`).
+
+```sh
+# on the Proxmox host
+VER=v0.1.0
+curl -fLO https://github.com/oleksdovz/pk3s/releases/download/$VER/pk3s-linux-amd64
+curl -fLO https://github.com/oleksdovz/pk3s/releases/download/$VER/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+install -m 0755 pk3s-linux-amd64 /usr/local/bin/pk3s
+```
+
+### From source
+
 On the Proxmox host:
 
 ```sh
@@ -250,6 +268,17 @@ More complete examples are in [examples/](examples/).
 - [docs/DESIGN.md](docs/DESIGN.md): architecture, deployment flow, LXC analysis, roadmap
 - [docs/SECURITY.md](docs/SECURITY.md): security profiles and their trade-offs
 - [docs/TESTING.md](docs/TESTING.md): how to test safely on a disposable Proxmox host
+
+## Releasing
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The `Release` workflow runs the tests, builds all targets with `make dist`,
+and attaches them and `SHA256SUMS` to the GitHub release (tags with a `-`,
+such as `v0.2.0-rc1`, are marked as pre-releases). `CI` runs vet, tests
+with the race detector, and a cross-compile on every push and pull request.
 
 ## License
 

@@ -1,0 +1,41 @@
+name: Release
+
+# Push a tag like v0.1.0 to build all binaries and publish them in a
+# GitHub Release, together with SHA256SUMS.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # git describe for the version string
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test -race ./...
+      - name: Build binaries
+        # Linux binaries are built first and embedded into every build, so
+        # `pk3s --host root@pve` works from macOS and Windows.
+        run: make dist VERSION=${GITHUB_REF_NAME}
+      - name: Check the version stamp
+        run: ./dist/pk3s-linux-amd64 version | grep -F "${GITHUB_REF_NAME}"
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/pk3s-linux-amd64
+            dist/pk3s-linux-arm64
+            dist/pk3s-darwin-arm64
+            dist/pk3s-darwin-amd64
+            dist/pk3s-windows-amd64.exe
+            dist/pk3s-windows-arm64.exe
+            dist/SHA256SUMS
