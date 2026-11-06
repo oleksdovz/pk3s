@@ -8,10 +8,12 @@ existing guests), shows a complete plan of what it will create or change, and
 deploys only after you confirm. Progress is saved after every step, so a failed
 or interrupted deployment can be resumed.
 
-> **Status: MVP, not yet validated end-to-end on a live host.** Read-only
-> commands (`init`, `plan`) have been run against Proxmox VE 9.2. Container
-> creation has only been tested against a simulator. Use a disposable host
-> first: see [docs/TESTING.md](docs/TESTING.md).
+> **Status: early release (v0.1.x).** Tested live on Proxmox VE 9.2:
+> create, scaling agents up and down, servers 1→3, and remote mode from
+> macOS. Not yet tested live: k3s upgrades, CPU/RAM/disk changes, persistent
+> data, recovery from the state ConfigMap, the Windows client and the
+> unprivileged profile. Use a disposable host first: see
+> [docs/TESTING.md](docs/TESTING.md).
 
 > **k3s in LXC is not supported upstream.** Neither k3s nor Proxmox document
 > this setup. The default `privileged` profile works in practice, but **root
