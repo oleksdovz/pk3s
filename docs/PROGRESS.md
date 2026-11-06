@@ -36,7 +36,15 @@ unless stated explicitly.
 - (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.
 - (done) Read-only `pk3s init` / `pk3s plan` on `hp`: inventory correct; 192.168.0.51 is taken by a LAN device (MAC 10:66:6a:53:1c:c9), .52-.65 free.
 - (done) First live deployment on `hp`: 1 server + 1 agent, CT 5000-5001, 192.168.0.52-53, cluster `lab` (old `-s1/-a1` names). Works end to end after the PATH fix; see docs/TESTING.md.
-- Not yet tested live: update/scale/upgrade, `pk3s destroy`, a fresh `apply` with main/node names and autostart, 3-server etcd, persistent data bind mounts, the TUI in a real terminal, the unprivileged profile.
+- (done, by the owner) `pk3s destroy lab` on `hp`: CTs 5000-5001 removed, state archived to /var/lib/pk3s/clusters/.destroyed/lab-20261106T190901Z, other guests and /data untouched.
+- Not yet tested live:
+  - a fresh `apply` with main/node names, autostart and embedded etcd on one server;
+  - update flow: agents up/down, servers 1→3, rolling k3s upgrade (start from v1.36.x), CPU/RAM/disk;
+  - state ConfigMap kube-system/pk3s-state and recovery when host state is missing;
+  - persistent data bind mounts + local-path PVCs (examples/manifests/local-path-pvc-test.yaml);
+  - TUI F-key navigation in a real terminal (macOS Terminal / iTerm over SSH);
+  - unprivileged-experimental profile.
+- Not implemented: removing servers (etcd member removal); multi-host placement; remote mode.
 
 ## Planned (later phases)
 - Remote mode: `pk3s --host <proxmox>` from macOS (arm64) / Windows / Linux over SSH.
