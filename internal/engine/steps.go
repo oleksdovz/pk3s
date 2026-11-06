@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -305,7 +306,14 @@ func (e *Engine) waitNode(ctx context.Context, n plan.Node) error {
 		if active == "active" {
 			if n.Role == k3s.RoleServer {
 				out, err := e.PCT.Exec(ctx, n.CTID, k3s.BinaryPath, "kubectl", "get", "--raw", "/readyz")
-				if err == nil && out == "ok" {
+				// A joining server must be part of main1's cluster, not a
+				// separate cluster that happens to answer /readyz.
+				joined := n.Bootstrap
+				if err == nil && out == "ok" && !joined {
+					_, jerr := e.PCT.Exec(ctx, e.bootstrap().CTID, k3s.BinaryPath, "kubectl", "get", "node", n.Hostname, "-o", "name")
+					joined = jerr == nil
+				}
+				if err == nil && out == "ok" && joined {
 					e.logf("%s: API server ready", n.Hostname)
 					return nil
 				}
@@ -365,6 +373,12 @@ func (e *Engine) clusterReady(ctx context.Context) error {
 	for _, n := range e.Plan.Nodes {
 		want[n.Hostname] = true
 	}
+	servers := map[string]bool{}
+	for _, n := range e.Plan.Nodes {
+		if n.Role == k3s.RoleServer {
+			servers[n.Hostname] = true
+		}
+	}
 	last := ""
 	for {
 		if err := ctx.Err(); err != nil {
@@ -377,9 +391,13 @@ func (e *Engine) clusterReady(ctx context.Context) error {
 			seen := map[string]bool{}
 			for _, ns := range nodes {
 				seen[ns.Name] = true
-				if want[ns.Name] && ns.Ready && (e.Plan.Mode != plan.ModeUpdate || ns.Version == e.Plan.K3sVersion) {
+				switch {
+				case !want[ns.Name]:
+				case servers[ns.Name] && !slices.Contains(ns.Roles, "etcd"):
+					notReady = append(notReady, ns.Name+" (not an etcd member)")
+				case ns.Ready && (e.Plan.Mode != plan.ModeUpdate || ns.Version == e.Plan.K3sVersion):
 					ready++
-				} else if want[ns.Name] {
+				default:
 					notReady = append(notReady, ns.Name)
 				}
 			}

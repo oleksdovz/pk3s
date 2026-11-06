@@ -212,7 +212,8 @@ func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Resul
 func (s *sim) nodesJSON() string {
 	type item struct {
 		Metadata struct {
-			Name string `json:"name"`
+			Name   string            `json:"name"`
+			Labels map[string]string `json:"labels"`
 		} `json:"metadata"`
 		Status struct {
 			Conditions []map[string]string `json:"conditions"`
@@ -231,6 +232,9 @@ func (s *sim) nodesJSON() string {
 			}
 		}
 		it.Status.Conditions = []map[string]string{{"type": "Ready", "status": "True"}}
+		if strings.Contains(ct.files[k3s.ConfigPath], "agent-token:") { // only servers carry it
+			it.Metadata.Labels = map[string]string{"node-role.kubernetes.io/control-plane": "true", "node-role.kubernetes.io/etcd": "true"}
+		}
 		it.Status.NodeInfo = map[string]string{"kubeletVersion": ct.files[k3s.BinaryPath]}
 		items = append(items, it)
 	}
@@ -517,4 +521,29 @@ func countPrefix(calls []runner.Cmd, prefix string) int {
 		}
 	}
 	return n
+}
+
+func TestAddServersOneToThree(t *testing.T) {
+	h := newHarness(t, func(s *spec.ClusterSpec) { s.Servers, s.Agents = 1, 1 })
+	if err := h.eng.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	p := h.update(t, func(s *spec.ClusterSpec) { s.Servers = 3 }, "")
+	if len(p.Changes) != 2 {
+		t.Fatalf("changes: %v", p.Changes)
+	}
+	// Existing node1 keeps CT 5001; new servers take the next free IDs.
+	for _, id := range []int{5002, 5003} {
+		ct := h.sim.cts[id]
+		if ct == nil || !ct.k3s {
+			t.Fatalf("server CT %d not created/joined", id)
+		}
+		cfg := ct.files[k3s.ConfigPath]
+		if !strings.Contains(cfg, "server: https://192.168.0.51:6443") || !strings.Contains(cfg, "token: "+secureServer) || strings.Contains(cfg, "cluster-init") {
+			t.Errorf("CT %d must join main1 with the server token:\n%s", id, cfg)
+		}
+	}
+	if _, ok := h.sim.cts[5001]; !ok {
+		t.Error("existing agent must stay")
+	}
 }
