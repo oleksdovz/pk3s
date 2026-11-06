@@ -132,6 +132,10 @@ func (s *sim) Run(_ context.Context, c runner.Cmd) (runner.Result, error) {
 func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Result, error) {
 	ok := func(out string) (runner.Result, error) { return runner.Result{Stdout: []byte(out)}, nil }
 	cmd := strings.Join(args, " ")
+	// pct exec runs without /usr/local/bin in PATH (seen on PVE 9.2).
+	if args[0] == "k3s" || args[0] == "kubectl" {
+		return runner.Result{ExitCode: 127}, fmt.Errorf("lxc-attach: Failed to exec %q: not in PATH", args[0])
+	}
 	switch {
 	case cmd == "systemctl is-system-running":
 		return ok("running")
@@ -145,9 +149,9 @@ func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Resul
 			return ok("active")
 		}
 		return ok("inactive")
-	case cmd == "k3s kubectl get --raw /readyz":
+	case cmd == "/usr/local/bin/k3s kubectl get --raw /readyz":
 		return ok("ok")
-	case strings.HasPrefix(cmd, "k3s kubectl get node "):
+	case strings.HasPrefix(cmd, "/usr/local/bin/k3s kubectl get node "):
 		return ok("node/" + args[4])
 	case cmd == "cat "+k3s.ServerTokenPath:
 		return ok(secureServer)
@@ -155,7 +159,7 @@ func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Resul
 		return ok(secureAgent)
 	case cmd == "cat "+k3s.KubeconfigPath:
 		return ok("server: https://127.0.0.1:6443\ncurrent-context: default\nclient-key-data: SECRETKEY")
-	case cmd == "k3s kubectl get nodes -o json":
+	case cmd == "/usr/local/bin/k3s kubectl get nodes -o json":
 		return ok(s.nodesJSON())
 	}
 	return runner.Result{ExitCode: 1}, fmt.Errorf("sim exec: unhandled %q in CT %d", cmd, id)

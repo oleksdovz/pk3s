@@ -83,4 +83,4 @@ Then try the failure paths:
 | Date | Host | What ran | Result |
 |------|------|----------|--------|
 | 2026-11-06 | `hp`, PVE 9.2.26, kernel 7.0.14 | `pk3s init`, `pk3s plan` (read-only) | Inventory correct (storages, templates, bridge gateway, DNS, CT 9000). Plan blocked 192.168.0.51 because it answers ping (a non-Proxmox device). No changes made. |
-| — | — | `pk3s apply` | **not yet run on a live host** |
+| 2026-11-06 | `hp`, PVE 9.2.26, kernel 7.0.14, privileged profile, Debian 13.1 template, LVM-thin | `pk3s apply` (1 server + 1 agent) | Steps 1-7 OK: host modules loaded, k3s v1.37.2+k3s1 downloaded and checksum-verified, CT created, profile applied, OS prepared without warnings, k3s server installed. **k3s server came up Ready inside LXC** (coredns, traefik, metrics-server, local-path running). Step 8 failed because pk3s called `k3s` by name and `pct exec` has no `/usr/local/bin` in PATH; fixed by using the absolute path. |

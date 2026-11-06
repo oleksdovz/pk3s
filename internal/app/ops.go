@@ -58,7 +58,7 @@ func (a *App) Status(ctx context.Context, name string) (*StatusReport, error) {
 	pct := pve.PCT{R: a.R}
 	k8s := map[string]k3s.NodeStatus{}
 	if status, err := pct.Status(ctx, p.Nodes[0].CTID); err == nil && status == "running" {
-		out, err := pct.Exec(ctx, p.Nodes[0].CTID, "k3s", "kubectl", "get", "nodes", "-o", "json")
+		out, err := pct.Exec(ctx, p.Nodes[0].CTID, k3s.BinaryPath, "kubectl", "get", "nodes", "-o", "json")
 		if err == nil {
 			nodes, perr := k3s.ParseNodes([]byte(out))
 			if perr == nil {

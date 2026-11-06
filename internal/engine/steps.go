@@ -277,13 +277,13 @@ func (e *Engine) waitNode(ctx context.Context, n plan.Node) error {
 		}
 		if active == "active" {
 			if n.Role == k3s.RoleServer {
-				out, err := e.PCT.Exec(ctx, n.CTID, "k3s", "kubectl", "get", "--raw", "/readyz")
+				out, err := e.PCT.Exec(ctx, n.CTID, k3s.BinaryPath, "kubectl", "get", "--raw", "/readyz")
 				if err == nil && out == "ok" {
 					e.logf("%s: API server ready", n.Hostname)
 					return nil
 				}
 			} else {
-				_, err := e.PCT.Exec(ctx, e.bootstrap().CTID, "k3s", "kubectl", "get", "node", n.Hostname, "-o", "name")
+				_, err := e.PCT.Exec(ctx, e.bootstrap().CTID, k3s.BinaryPath, "kubectl", "get", "node", n.Hostname, "-o", "name")
 				if err == nil {
 					e.logf("%s: registered with the cluster", n.Hostname)
 					return nil
@@ -325,7 +325,7 @@ func (e *Engine) fetchTokens(ctx context.Context) error {
 
 // NodeStatuses returns the nodes as reported by the bootstrap server.
 func (e *Engine) NodeStatuses(ctx context.Context) ([]k3s.NodeStatus, error) {
-	out, err := e.PCT.Exec(ctx, e.bootstrap().CTID, "k3s", "kubectl", "get", "nodes", "-o", "json")
+	out, err := e.PCT.Exec(ctx, e.bootstrap().CTID, k3s.BinaryPath, "kubectl", "get", "nodes", "-o", "json")
 	if err != nil {
 		return nil, err
 	}
