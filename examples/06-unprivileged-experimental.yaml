@@ -1,0 +1,23 @@
+# EXPERIMENTAL: unprivileged containers keep host isolation (container root
+# is not host root) but are not documented by k3s and may fail to start.
+# NFS mounts do not work in unprivileged containers, so the NFS client is off.
+name: sandbox
+servers: 1
+agents: 1
+ctid_start: 5600
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: local-lvm
+server_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+agent_resources: {cores: 2, memory_mib: 2048, disk_gib: 30}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.100
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2]
+security:
+  profile: unprivileged-experimental
+os:
+  nfs_client: false

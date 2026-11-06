@@ -1,0 +1,37 @@
+# Control plane with embedded etcd: 3 main nodes (quorum 2, tolerates one
+# failed main container) + 3 worker nodes. Pinned k3s version, extra API
+# certificate names, host directory for local-path volumes.
+# Note: all containers on one Proxmox host are not host-level HA.
+name: prod
+hostname_prefix: k3s
+servers: 3
+agents: 3
+ctid_start: 5300
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: x-data
+server_resources: {cores: 4, memory_mib: 8192, disk_gib: 40}
+agent_resources: {cores: 4, memory_mib: 8192, disk_gib: 60}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.70
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2, 1.1.1.1]
+  search_domain: lan
+k3s:
+  version: v1.37.2+k3s1
+  disable: [servicelb]
+  tls_sans: [k3s.lan, 192.168.0.69]
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true
+persistent_data:
+  enabled: true
+  host_path: /data/k3s-storage
+startup:
+  main_order: 10
+  main_delay_sec: 20
+  node_order: 20
+  node_delay_sec: 10

@@ -137,6 +137,7 @@ access:
 ```
 
 Unknown keys are rejected, so a typo cannot silently fall back to a default.
+More complete examples are in [examples/](examples/).
 
 ## Files
 

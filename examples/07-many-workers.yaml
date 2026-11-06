@@ -1,0 +1,36 @@
+# One main + 5 workers with more resources, extra packages on every node,
+# staggered autostart, and no automatic kernel module changes (modules are
+# managed by the host admin; pk3s only warns if some are missing).
+name: batch
+hostname_prefix: batch
+servers: 1
+agents: 5
+ctid_start: 5700
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: x-data
+server_resources: {cores: 4, memory_mib: 8192, disk_gib: 40}
+agent_resources: {cores: 6, memory_mib: 12288, disk_gib: 80}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.110
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2]
+k3s:
+  version: stable
+  disable: [traefik, servicelb]
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true
+host:
+  load_kernel_modules: false
+os:
+  nfs_client: true
+  extra_packages: [htop, jq, open-iscsi]
+startup:
+  main_order: 1
+  main_delay_sec: 30
+  node_order: 2
+  node_delay_sec: 15

@@ -1,0 +1,30 @@
+# Per-container networking: defaults for most nodes, explicit addresses,
+# gateway and DNS for some. node_network keys: main1.., node1..
+name: mixed
+servers: 1
+agents: 3
+ctid_start: 5400
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: local-lvm
+server_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+agent_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.80
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2]
+node_network:
+  - node: main1
+    ip: 192.168.0.79                # main gets a memorable address
+  - node: node2
+    ip: 192.168.0.90
+    dns: [1.1.1.1, 9.9.9.9]          # node with public resolvers
+  - node: node3
+    ip: 192.168.0.91
+    gateway: 192.168.0.254           # node behind another router
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true

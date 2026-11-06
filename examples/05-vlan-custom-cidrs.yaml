@@ -1,0 +1,28 @@
+# Cluster on a tagged VLAN with jumbo frames and non-default pod/service
+# networks (useful when 10.42/10.43 clash with your LAN or VPN).
+name: lab-vlan
+servers: 1
+agents: 2
+ctid_start: 5500
+template:
+  storage: DATA
+  name: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+rootfs_storage: x-data
+server_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+agent_resources: {cores: 2, memory_mib: 2048, disk_gib: 30}
+network:
+  bridge: vmbr0
+  vlan: 30
+  mtu: 9000
+  first_ip: 10.30.0.10
+  prefix: 24
+  gateway: 10.30.0.1
+  dns: [10.30.0.1]
+k3s:
+  version: v1.36
+  cluster_cidr: 172.20.0.0/16
+  service_cidr: 172.21.0.0/16
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true
+  tun_device: true                  # e.g. for a WireGuard/Tailscale pod

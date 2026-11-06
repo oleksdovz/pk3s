@@ -1,0 +1,29 @@
+# Typical dev cluster: 1 main + 2 nodes, bundled ingress disabled
+# (bring your own, e.g. ingress-nginx), SSH key for direct access.
+name: dev
+hostname_prefix: dev-k3s
+servers: 1
+agents: 2
+ctid_start: 5200
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: x-data
+server_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+agent_resources: {cores: 2, memory_mib: 2048, disk_gib: 30}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.54
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2]
+  search_domain: lan
+k3s:
+  version: stable
+  disable: [traefik]
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true
+access:
+  ssh_public_key_file: /root/.ssh/authorized_keys
+  timezone: Europe/Kyiv

@@ -1,0 +1,20 @@
+# Smallest cluster: one main (server) node, no agents. SQLite datastore.
+# Workloads run on the main node. Good for a first test.
+name: solo
+servers: 1
+agents: 0
+ctid_start: 5100
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: local-lvm
+server_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.52
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2]
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true
