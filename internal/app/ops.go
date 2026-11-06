@@ -47,7 +47,14 @@ func (a *App) Status(ctx context.Context, name string) (*StatusReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	p, err := plan.Build(s, &pve.Inventory{LoadedModules: map[string]bool{}}, st.K3sVersion)
+	// Rebuild the plan without querying the host. Steps that only exist
+	// when something was missing at deploy time (template download) are
+	// counted only if they were recorded in the state.
+	inv := &pve.Inventory{LoadedModules: map[string]bool{}}
+	if _, ok := st.Steps[string(plan.StepTemplate)]; !ok {
+		inv.Templates = []pve.Template{{VolID: s.Template.VolID()}}
+	}
+	p, err := plan.Build(s, inv, st.K3sVersion)
 	if err != nil {
 		return nil, err
 	}

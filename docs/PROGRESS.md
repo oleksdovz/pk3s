@@ -22,7 +22,8 @@ unless stated explicitly.
 - (done) TUI model tests, spec/state/runner tests.
 - (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.
 - (done) Read-only `pk3s init` / `pk3s plan` on `hp`: inventory correct; 192.168.0.51 is taken by a LAN device (MAC 10:66:6a:53:1c:c9), .52-.65 free.
-- Live `pk3s apply` on `hp` (only after explicit approval; creates containers). Suggested first run: 1 server + 1 agent from 192.168.0.52.
+- (done) First live deployment on `hp`: 1 server + 1 agent, CT 5000-5001, 192.168.0.52-53, cluster `lab` (old `-s1/-a1` names). Works end to end after the PATH fix; see docs/TESTING.md.
+- Not yet tested live: `pk3s destroy`, a fresh `apply` with main/node names and autostart, 3-server etcd, persistent data bind mounts, the TUI in a real terminal, the unprivileged profile.
 
 ## Planned (later phases)
 - Remote mode: `pk3s --host <proxmox>` from macOS (arm64) / Windows / Linux over SSH.
