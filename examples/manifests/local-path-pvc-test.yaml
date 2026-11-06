@@ -1,0 +1,74 @@
+# One PVC + writer pod per agent node, using the k3s local-path StorageClass.
+# Use with a cluster deployed from ../08-local-path-storage.yaml:
+#
+#   export KUBECONFIG=/var/lib/pk3s/clusters/store/kubeconfig
+#   kubectl apply -f local-path-pvc-test.yaml
+#   kubectl get pvc,pod -o wide
+#
+# Then on the Proxmox host each node's data is visible in its own directory:
+#
+#   ls /data/k3s-storage/store/store-node1/   # pvc-<uid>_default_data-node1/hello.txt
+#   ls /data/k3s-storage/store/store-node2/   # pvc-<uid>_default_data-node2/hello.txt
+#
+# local-path volumes have node affinity: a pod using data-node1 always runs
+# on store-node1. Clean up with: kubectl delete -f local-path-pvc-test.yaml
+# (the default reclaim policy Delete also removes the pvc-* directory).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-node1
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: writer-node1
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: store-node1
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "echo hello from $(hostname) at $(date) >> /data/hello.txt; sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-node1
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-node2
+spec:
+  storageClassName: local-path
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: writer-node2
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: store-node2
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "echo hello from $(hostname) at $(date) >> /data/hello.txt; sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-node2

@@ -13,6 +13,7 @@ IP addresses for your host, then run `pk3s plan -f <file>` before `apply`.
 | [05-vlan-custom-cidrs.yaml](05-vlan-custom-cidrs.yaml) | 1 | 2 | VLAN tag, MTU 9000, Ubuntu 24.04, custom pod/service CIDRs, `/dev/net/tun` |
 | [06-unprivileged-experimental.yaml](06-unprivileged-experimental.yaml) | 1 | 1 | Experimental unprivileged profile, NFS client off |
 | [07-many-workers.yaml](07-many-workers.yaml) | 1 | 5 | Large workers, extra packages, staggered autostart, host modules managed manually |
+| [08-local-path-storage.yaml](08-local-path-storage.yaml) | 1 | 2 | Per-node host directories for the `local-path` StorageClass; test with [manifests/local-path-pvc-test.yaml](manifests/local-path-pvc-test.yaml) |
 
 `go test ./examples/` checks that every file parses and validates without
 errors against the captured host inventory (network probes are not run).
