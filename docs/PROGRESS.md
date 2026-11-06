@@ -37,18 +37,19 @@ unless stated explicitly.
 - (done) Read-only `pk3s init` / `pk3s plan` on `hp`: inventory correct; 192.168.0.51 is taken by a LAN device (MAC 10:66:6a:53:1c:c9), .52-.65 free.
 - (done) First live deployment on `hp`: 1 server + 1 agent, CT 5000-5001, 192.168.0.52-53, cluster `lab` (old `-s1/-a1` names). Works end to end after the PATH fix; see docs/TESTING.md.
 - (done, by the owner) `pk3s destroy lab` on `hp`: CTs 5000-5001 removed, state archived to /var/lib/pk3s/clusters/.destroyed/lab-20261106T190901Z, other guests and /data untouched.
+- (done, live) fresh apply with main/node names, autostart and embedded etcd; parallel provision + merged steps; scale-up agents 2→5; scale-down 5→1; servers 1→3; remote mode from macOS (`--host`).
+- (done) `<name>-kubeconfig.yaml` written to the current directory after create/update (also fetched in remote mode).
+- (done) GitHub Actions: `CI` (gofmt, vet, `go test -race`, cross-compile) on push/PR; every green push to `main` is tagged with the next patch version and released with 6 binaries + SHA256SUMS (first releases: v0.1.0, v0.1.1 on 2026-11-06).
+- (done) Examples 01–08 + `examples/manifests/local-path-pvc-test.yaml`; all links in README/docs/examples checked, `go test ./examples/` validates every spec.
 - Not yet tested live:
-  - a fresh `apply` with main/node names, autostart and embedded etcd on one server;
-  - update flow: agents up/down, servers 1→3, rolling k3s upgrade (start from v1.36.x), CPU/RAM/disk;
-  - state ConfigMap kube-system/pk3s-state and recovery when host state is missing;
+  - rolling k3s upgrade (start from a cluster on v1.36.x), CPU/RAM/disk change;
+  - state ConfigMap kube-system/pk3s-state recovery when host state is missing;
   - persistent data bind mounts + local-path PVCs (examples/manifests/local-path-pvc-test.yaml);
-  - TUI F-key navigation in a real terminal (macOS Terminal / iTerm over SSH);
+  - remote TUI over `ssh -t`, Windows client;
   - unprivileged-experimental profile.
-- (done, live) parallel provision + merged steps; scale-up agents 2→5; scale-down 5→1; servers 1→3; remote mode from macOS (`--host`).
-- Not yet tested live: rolling k3s upgrade (needs a cluster on v1.36.x), CPU/RAM/disk change, ConfigMap recovery, persistent data + PVCs, remote TUI over `ssh -t`, Windows client, unprivileged profile.
-- Not implemented: removing servers (etcd member removal); multi-host placement; memory capacity check; pure SSH runner (pk3s only on the workstation).
+- Not implemented: removing servers (etcd member removal); memory capacity check; pure SSH runner (pk3s only on the workstation).
+- Open question for the owner: keep or drop the `Co-Authored-By: Claude` commit trailer (history rewrite would need a force push).
 
 ## Planned (later phases)
-- Remote mode: `pk3s --host <proxmox>` from macOS (arm64) / Windows / Linux over SSH.
 - Multi-host placement across Proxmox cluster nodes.
 - Stable API endpoint (kube-vip VIP) for multi-server clusters.
