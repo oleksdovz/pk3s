@@ -115,6 +115,8 @@ type Engine struct {
 	artMu sync.Mutex
 	// emitMu serializes Notify calls from parallel steps.
 	emitMu sync.Mutex
+	// secMu guards Secrets (read by parallel joins).
+	secMu sync.Mutex
 }
 
 // RequestStop asks the engine to stop after the current step.
@@ -324,6 +326,12 @@ func (e *Engine) runStep(ctx context.Context, st plan.Step) error {
 }
 
 func (e *Engine) bootstrap() plan.Node { return e.Plan.Nodes[0] }
+
+func (e *Engine) hasResource(kind, id string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.State.HasResource(kind, id)
+}
 
 func (e *Engine) addResource(kind, id string) error {
 	e.mu.Lock()

@@ -64,7 +64,7 @@ func (e *Engine) ownsCT(ctx context.Context, n plan.Node) (bool, error) {
 func (e *Engine) createCT(ctx context.Context, n plan.Node) error {
 	if _, err := e.PCT.Status(ctx, n.CTID); err == nil {
 		// The CT exists. Only continue if pk3s created it for this cluster.
-		if e.State.HasResource(state.KindContainer, ctID(n)) {
+		if e.hasResource(state.KindContainer, ctID(n)) {
 			e.logf("CT %d already created by pk3s, continuing", n.CTID)
 			return nil
 		}
@@ -205,6 +205,8 @@ func (e *Engine) prepareNode(ctx context.Context, n plan.Node) error {
 }
 
 func (e *Engine) ensureTokens() error {
+	e.secMu.Lock()
+	defer e.secMu.Unlock()
 	if e.Secrets.ServerToken != "" && e.Secrets.AgentToken != "" {
 		return nil
 	}
@@ -235,10 +237,12 @@ func (e *Engine) installK3s(ctx context.Context, n plan.Node) error {
 	if err := e.ensureTokens(); err != nil {
 		return err
 	}
-	join := e.Secrets.SecureServerToken
+	e.secMu.Lock()
+	serverTok, agentTok, join := e.Secrets.ServerToken, e.Secrets.AgentToken, e.Secrets.SecureServerToken
 	if n.Role == k3s.RoleAgent {
 		join = e.Secrets.SecureAgentToken
 	}
+	e.secMu.Unlock()
 	if !n.Bootstrap && join == "" {
 		return fmt.Errorf("join token not available; the bootstrap server must be installed first")
 	}
@@ -260,7 +264,7 @@ func (e *Engine) installK3s(ctx context.Context, n plan.Node) error {
 		return err
 	}
 
-	cfg, err := e.Plan.NodeConfig(n, e.Secrets.ServerToken, e.Secrets.AgentToken, join).Render()
+	cfg, err := e.Plan.NodeConfig(n, serverTok, agentTok, join).Render()
 	if err != nil {
 		return err
 	}
@@ -346,12 +350,15 @@ func (e *Engine) fetchTokens(ctx context.Context) error {
 	if !strings.HasPrefix(srv, "K10") || !strings.HasPrefix(agt, "K10") {
 		return fmt.Errorf("unexpected token format (expected secure K10 tokens)")
 	}
-	e.Secrets.SecureServerToken, e.Secrets.SecureAgentToken = srv, agt
 	if e.Redactor != nil {
 		e.Redactor.Add(srv)
 		e.Redactor.Add(agt)
 	}
-	if err := e.Store.SaveSecrets(e.Secrets); err != nil {
+	e.secMu.Lock()
+	e.Secrets.SecureServerToken, e.Secrets.SecureAgentToken = srv, agt
+	err = e.Store.SaveSecrets(e.Secrets)
+	e.secMu.Unlock()
+	if err != nil {
 		return err
 	}
 	e.logf("join tokens stored in %s (mode 0600)", e.Store.Path("secrets.json"))
