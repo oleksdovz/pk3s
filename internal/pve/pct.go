@@ -339,3 +339,9 @@ func RootfsSizeGiB(conf string) int {
 	}
 	return 0
 }
+
+// ExecStdin runs a command inside the container with data on stdin.
+func (p PCT) ExecStdin(ctx context.Context, vmid int, stdin []byte, args ...string) (string, error) {
+	all := append([]string{"exec", strconv.Itoa(vmid), "--"}, args...)
+	return runner.Output(ctx, p.R, runner.Cmd{Name: "pct", Args: all, Stdin: stdin})
+}

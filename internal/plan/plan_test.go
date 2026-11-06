@@ -132,15 +132,15 @@ func TestNodeConfigsSeparateTokens(t *testing.T) {
 	}
 }
 
-func TestSingleServerUsesSQLite(t *testing.T) {
+func TestSingleServerUsesEmbeddedEtcd(t *testing.T) {
 	s := baseSpec()
 	s.Servers = 1
 	p, err := plan.Build(s, testutil.HPInventory(t), ver)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.NodeConfig(p.Nodes[0], "a", "b", "").ClusterInit || !strings.Contains(p.Datastore, "SQLite") {
-		t.Error("single server must not use cluster-init")
+	if !p.NodeConfig(p.Nodes[0], "a", "b", "").ClusterInit || !strings.Contains(p.Datastore, "embedded etcd, 1 server") {
+		t.Errorf("single server must use embedded etcd: %s", p.Datastore)
 	}
 }
 
@@ -167,7 +167,7 @@ func TestStepsAndHostChanges(t *testing.T) {
 	if tokens < 0 || s2 < tokens {
 		t.Errorf("tokens must be read before the second node is created: %v", ids)
 	}
-	if ids[0] != "host-modules" || ids[len(ids)-1] != "kubeconfig" {
+	if ids[0] != "host-modules" || ids[len(ids)-1] != "publish-state" {
 		t.Errorf("unexpected order: %v", ids)
 	}
 	if !slices.Contains(p.MissingModules, "vxlan") || !slices.Contains(p.MissingModules, "overlay") {

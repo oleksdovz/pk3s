@@ -63,8 +63,9 @@ type UpdateInput struct {
 
 // BuildUpdate computes the plan that moves a deployed cluster to the target
 // spec. Changes are applied one step at a time in this order: container
-// settings, k3s upgrade (servers first), node removal (highest number
-// first), new nodes (servers first), then a final readiness check.
+// settings, k3s upgrade (servers first), node removal (highest CT ID
+// first), new nodes (servers first), a readiness check, and finally the
+// state ConfigMap.
 func BuildUpdate(in UpdateInput, inv *pve.Inventory) (*Plan, error) {
 	p, err := BuildLayout(in.Target, inv, in.ToVersion, in.Layout)
 	if err != nil {
@@ -129,7 +130,7 @@ func BuildUpdate(in UpdateInput, inv *pve.Inventory) (*Plan, error) {
 	// 2. Rolling k3s upgrade of existing nodes: servers, then agents.
 	if upgrade {
 		p.Changes = append(p.Changes, fmt.Sprintf("upgrade k3s %s -> %s (servers one by one, then agents; agents are drained)", in.FromVersion, in.ToVersion))
-		add(StepBackup, -1, "", "Back up the datastore on "+p.Nodes[0].Hostname)
+		add(StepBackup, -1, "", "Take an etcd snapshot on "+p.Nodes[0].Hostname)
 		for _, role := range []k3s.Role{k3s.RoleServer, k3s.RoleAgent} {
 			for _, n := range p.Nodes {
 				if n.Role == role && p.Existing[n.Key] {
@@ -169,6 +170,7 @@ func BuildUpdate(in UpdateInput, inv *pve.Inventory) (*Plan, error) {
 
 	if len(p.Changes) > 0 {
 		add(StepClusterReady, -1, "", "Wait for all nodes Ready")
+		add(StepPublishState, -1, "", "Record cluster state in ConfigMap kube-system/pk3s-state")
 	}
 	return p, nil
 }

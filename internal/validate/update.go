@@ -26,8 +26,6 @@ func Update(in plan.UpdateInput) Findings {
 	switch {
 	case tgt.Servers < cur.Servers:
 		add(Error, "servers", "removing servers (%d -> %d) is not supported yet", cur.Servers, tgt.Servers)
-	case cur.Servers == 1 && tgt.Servers > 1:
-		add(Error, "servers", "1 -> %d servers needs converting SQLite to embedded etcd; not supported yet", tgt.Servers)
 	case tgt.Servers > cur.Servers:
 		add(Info, "servers", "%d new server(s) join embedded etcd one at a time", tgt.Servers-cur.Servers)
 	}

@@ -2,8 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/oleksdovz/pk3s/internal/k3s"
+	"github.com/oleksdovz/pk3s/internal/pve"
 
 	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/runner"
@@ -113,5 +117,56 @@ func TestChannelDoesNotUpgrade(t *testing.T) {
 	}
 	if prep.Plan.K3sVersion != "v1.37.2+k3s1" || len(prep.Plan.Changes) != 0 {
 		t.Fatalf("channel must not upgrade: %s %v", prep.Plan.K3sVersion, prep.Plan.Changes)
+	}
+}
+
+func TestRecoverStateFromConfigMap(t *testing.T) {
+	// Cluster deployed elsewhere: no host state, containers carry the tag
+	// and main1 holds the ConfigMap.
+	cur := deployedSpec()
+	inv := testutil.HPInventory(t)
+	p, err := plan.Build(cur, inv, "v1.37.2+k3s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range p.Nodes {
+		inv.Guests = append(inv.Guests, pve.Guest{VMID: n.CTID, Name: n.Hostname, Type: "lxc", Node: "hp", Status: "running", Tags: []string{"pk3s", "pk3s-lab"}, IPs: []string{n.IP}})
+	}
+	specYAML, _ := spec.Marshal(cur)
+	layout, _ := json.Marshal(p.Records())
+	cm, _ := k3s.StateConfigMap(k3s.ClusterState{SpecYAML: string(specYAML), LayoutJSON: string(layout), K3sVersion: "v1.37.2+k3s1"})
+
+	f := runner.NewFake()
+	f.OK("pct exec 5000 -- /usr/local/bin/k3s kubectl get configmap pk3s-state -n kube-system -o json", string(cm))
+	f.OK("pct exec 5000 -- cat /etc/rancher/k3s/config.yaml", "token: rawserver0123456789\nagent-token: rawagent0123456789\n")
+	f.OK("pct exec 5000 -- cat /var/lib/rancher/k3s/server/token", "K10abc::server:rawserver0123456789")
+	f.OK("pct exec 5000 -- cat /var/lib/rancher/k3s/server/agent-token", "K10abc::node:rawagent0123456789")
+	f.OK("pct exec 5000 -- cat /etc/rancher/k3s/k3s.yaml", "server: https://127.0.0.1:6443\ncurrent-context: default")
+
+	root := t.TempDir()
+	a := &App{Root: root, R: f, Redactor: &runner.Redactor{}}
+	tgt := cur
+	tgt.Agents = 3
+	prep, err := a.Prepare(context.Background(), tgt, inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prep.Findings.HasErrors() || prep.Plan.Mode != plan.ModeUpdate {
+		t.Fatalf("expected update plan: %v", prep.Findings)
+	}
+	if !strings.Contains(prep.Findings.String(), "state restored from ConfigMap kube-system/pk3s-state") {
+		t.Error("recovery not reported")
+	}
+	if len(prep.Plan.Changes) != 1 || !strings.Contains(prep.Plan.Changes[0], "lab-node3") {
+		t.Errorf("changes: %v", prep.Plan.Changes)
+	}
+	store := &state.Store{Root: root, Cluster: "lab"}
+	sec, _ := store.LoadSecrets()
+	if sec.AgentToken != "rawagent0123456789" || sec.SecureAgentToken == "" {
+		t.Errorf("tokens not recovered: %+v", sec)
+	}
+	st, _ := store.Load()
+	if len(st.Layout) != 3 || !st.HasResource(state.KindContainer, "5002") {
+		t.Errorf("layout/ledger not recovered: %+v", st)
 	}
 }

@@ -116,8 +116,24 @@ type Prepared struct {
 // If pk3s already manages a cluster with this name, the result is an
 // update plan (diff against the deployed cluster) instead.
 func (a *App) Prepare(ctx context.Context, s spec.ClusterSpec, inv *pve.Inventory) (*Prepared, error) {
-	if (&state.Store{Root: a.Root, Cluster: s.Name}).Exists() {
-		return a.prepareUpdate(ctx, s, inv)
+	store := &state.Store{Root: a.Root, Cluster: s.Name}
+	recovered := false
+	if !store.Exists() {
+		// No state on this host: if the cluster exists (tagged containers),
+		// rebuild the state from the ConfigMap kept inside the cluster.
+		ok, err := a.recoverState(ctx, s.Name, inv)
+		if err != nil {
+			return nil, err
+		}
+		recovered = ok
+	}
+	if store.Exists() {
+		prep, err := a.prepareUpdate(ctx, s, inv)
+		if err == nil && recovered {
+			prep.Findings = append(prep.Findings, validate.Finding{Severity: validate.Info, Field: "name",
+				Message: "state restored from ConfigMap kube-system/pk3s-state into " + store.Dir()})
+		}
+		return prep, err
 	}
 	f := validate.Spec(s, inv)
 	if f.HasErrors() {

@@ -172,7 +172,7 @@ func buildSections(s *spec.ClusterSpec, inv *pve.Inventory) []section {
 		},
 		{
 			title: "Topology", prefixes: []string{"servers", "agents"},
-			intro: "1 server = SQLite. 3/5/7 servers = embedded etcd with quorum.\nAll containers on one Proxmox host is not host-level HA.",
+			intro: "Always embedded etcd. 1 server: no fault tolerance; 3/5/7: quorum.\nServers can be added later (1 -> 3 -> 5). One Proxmox host is not host-level HA.",
 			fields: []field{
 				intField("Server nodes", "Control plane nodes: 1, 3, 5 or 7", func(s *spec.ClusterSpec) *int { return &s.Servers }),
 				intField("Agent nodes", "Worker nodes", func(s *spec.ClusterSpec) *int { return &s.Agents }),

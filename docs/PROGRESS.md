@@ -20,6 +20,10 @@ unless stated explicitly.
 
 - (done) Declarative update of a running cluster: stable node layout in state, diff plan, agent scale up/down, server scale-up for etcd clusters, rolling k3s upgrade with datastore backup, CPU/RAM/disk/autostart changes, resumable pending operation. Tested against the simulator only.
 
+- (done) Always embedded etcd (SQLite removed), so 1→3 servers is a join.
+- (done) Cluster state ConfigMap `kube-system/pk3s-state` written after every apply; host state restored from it when missing.
+- (done) Scale-down sequence via kubectl on main1: cordon → drain → delete node → stop → destroy.
+
 ## Next
 - (done) TUI model tests, spec/state/runner tests.
 - (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.

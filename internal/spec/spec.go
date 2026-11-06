@@ -238,9 +238,6 @@ func (s *ClusterSpec) SetOverride(o NodeNetwork) {
 // TotalNodes returns servers + agents.
 func (s ClusterSpec) TotalNodes() int { return s.Servers + s.Agents }
 
-// EmbeddedEtcd reports whether the spec uses embedded etcd (more than one server).
-func (s ClusterSpec) EmbeddedEtcd() bool { return s.Servers > 1 }
-
 // Load reads a spec from a YAML file, applying defaults for missing fields.
 func Load(path string) (ClusterSpec, error) {
 	data, err := os.ReadFile(path)

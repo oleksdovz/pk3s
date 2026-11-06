@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/oleksdovz/pk3s/internal/k3s"
 	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/pve"
+	"github.com/oleksdovz/pk3s/internal/spec"
 	"github.com/oleksdovz/pk3s/internal/state"
 )
 
@@ -51,28 +53,14 @@ func boolStr(b bool) string {
 	return "0"
 }
 
-// backupDatastore takes an etcd snapshot (embedded etcd) or copies the
-// SQLite database before an upgrade.
+// backupDatastore takes an etcd snapshot before an upgrade.
 func (e *Engine) backupDatastore(ctx context.Context) error {
 	b := e.bootstrap()
 	name := "pk3s-pre-" + strings.NewReplacer("+", "-", ".", "-").Replace(e.Plan.K3sVersion)
-	if e.Plan.Spec.EmbeddedEtcd() {
-		if _, err := e.PCT.Exec(ctx, b.CTID, k3s.BinaryPath, "etcd-snapshot", "save", "--name", name); err != nil {
-			return fmt.Errorf("etcd snapshot: %w", err)
-		}
-		e.logf("etcd snapshot %s saved in /var/lib/rancher/k3s/server/db/snapshots on %s", name, b.Hostname)
-		return nil
+	if _, err := e.PCT.Exec(ctx, b.CTID, k3s.BinaryPath, "etcd-snapshot", "save", "--name", name); err != nil {
+		return fmt.Errorf("etcd snapshot: %w", err)
 	}
-	dir := "/var/lib/rancher/k3s/server/db"
-	_, err := e.PCT.ExecScript(ctx, b.CTID, fmt.Sprintf(`set -eu
-cd %[1]s
-mkdir -p backups
-for f in state.db state.db-wal state.db-shm; do [ -e "$f" ] && cp -a "$f" "backups/%[2]s-$f"; done
-`, dir, name))
-	if err != nil {
-		return fmt.Errorf("SQLite backup: %w", err)
-	}
-	e.logf("SQLite datastore copied to %s/backups/%s-state.db on %s", dir, name, b.Hostname)
+	e.logf("etcd snapshot %s saved in /var/lib/rancher/k3s/server/db/snapshots on %s", name, b.Hostname)
 	return nil
 }
 
@@ -146,6 +134,9 @@ func (e *Engine) upgradeNode(ctx context.Context, n plan.Node) error {
 	return nil
 }
 
+// removeNode scales down one agent: cordon -> drain -> delete node (via
+// kubectl on main1), then stop and destroy the container if it carries
+// the cluster tag. The data directory is kept.
 func (e *Engine) removeNode(ctx context.Context, n plan.Node) error {
 	if _, err := e.PCT.Status(ctx, n.CTID); err == nil {
 		owned, err := e.ownsCT(ctx, n)
@@ -156,8 +147,12 @@ func (e *Engine) removeNode(ctx context.Context, n plan.Node) error {
 			return fmt.Errorf("CT %d does not carry tag %s; refusing to remove it", n.CTID, plan.ClusterTag(e.Plan.Spec.Name))
 		}
 	}
+	// All Kubernetes operations run through kubectl on main1.
 	if _, ok := e.nodeStatus(ctx, n.Hostname); ok {
-		e.logf("%s: draining (timeout %s)", n.Hostname, DrainTimeout)
+		if _, err := e.kubectl(ctx, "cordon", n.Hostname); err != nil {
+			return fmt.Errorf("cordon %s: %w", n.Hostname, err)
+		}
+		e.logf("%s: cordoned, draining (timeout %s)", n.Hostname, DrainTimeout)
 		if _, err := e.kubectl(ctx, "drain", n.Hostname, "--ignore-daemonsets", "--delete-emptydir-data",
 			"--timeout="+DrainTimeout.String()); err != nil {
 			return fmt.Errorf("drain %s: %w (check PodDisruptionBudgets, then resume)", n.Hostname, err)
@@ -181,4 +176,30 @@ func (e *Engine) removeNode(ctx context.Context, n plan.Node) error {
 		e.logf("%s removed", n.Hostname)
 	}
 	return e.Store.Save(e.State)
+}
+
+// publishState writes the cluster state (spec, node layout, version; no
+// secrets) to the ConfigMap kube-system/pk3s-state through the bootstrap
+// server, so it can be recovered from the cluster itself.
+func (e *Engine) publishState(ctx context.Context) error {
+	specYAML, err := spec.Marshal(e.Plan.Spec)
+	if err != nil {
+		return err
+	}
+	layout, err := json.Marshal(e.Plan.Records())
+	if err != nil {
+		return err
+	}
+	manifest, err := k3s.StateConfigMap(k3s.ClusterState{
+		SpecYAML: string(specYAML), LayoutJSON: string(layout),
+		K3sVersion: e.Plan.K3sVersion, UpdatedAt: time.Now(), Tool: "pk3s",
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := e.PCT.ExecStdin(ctx, e.bootstrap().CTID, manifest, k3s.BinaryPath, "kubectl", "apply", "-f", "-"); err != nil {
+		return fmt.Errorf("write %s/%s: %w", k3s.StateConfigMapNamespace, k3s.StateConfigMapName, err)
+	}
+	e.logf("cluster state recorded in ConfigMap %s/%s", k3s.StateConfigMapNamespace, k3s.StateConfigMapName)
+	return nil
 }

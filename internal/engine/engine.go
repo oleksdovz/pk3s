@@ -245,6 +245,8 @@ func (e *Engine) runStep(ctx context.Context, st plan.Step) error {
 		return e.backupDatastore(ctx)
 	case plan.StepUpgradeNode:
 		return e.upgradeNode(ctx, node)
+	case plan.StepPublishState:
+		return e.publishState(ctx)
 	case plan.StepRemoveNode:
 		return e.removeNode(ctx, e.Plan.Removed[st.Node])
 	default:

@@ -131,6 +131,9 @@ func Spec(s spec.ClusterSpec, inv *pve.Inventory) Findings {
 	if s.Servers >= 3 {
 		add(Info, "servers", "embedded etcd tolerates %d server container failure(s); all containers on one Proxmox host is NOT host-level HA", (s.Servers-1)/2)
 	}
+	if s.Servers == 1 {
+		add(Info, "servers", "embedded etcd on 1 server: no control-plane fault tolerance; you can grow to 3 servers later")
+	}
 	if s.Agents < 0 {
 		add(Error, "agents", "cannot be negative")
 	}

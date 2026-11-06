@@ -84,9 +84,13 @@
 
 | Servers | Datastore | Fault tolerance |
 |---------|-----------|-----------------|
-| 1 | SQLite | none |
+| 1 | embedded etcd (`cluster-init`) | none; can grow to 3 later |
 | 2 | rejected | quorum 2: losing either server stops the control plane |
 | 3 / 5 / 7 | embedded etcd (`cluster-init` on the first) | 1 / 2 / 3 server containers |
+
+SQLite is never used: a single server also runs embedded etcd, so adding
+servers later is a join (no datastore conversion) and etcd snapshots are
+available for backups.
 
 All containers are on one Proxmox host, so the host is a single point of
 failure. pk3s never calls this "HA".
@@ -110,6 +114,37 @@ at the first server. A floating VIP (kube-vip) is planned.
   firewall is enabled.
 
 ## Roadmap
+
+## Updating a running cluster
+
+`apply` on an existing cluster calls `plan.BuildUpdate`, which compares the
+target spec with the recorded node layout (`state.json` → `layout`) and
+produces operation-scoped steps (`op-<timestamp>/…`). The order is:
+
+1. container settings (`pct set`, `pct resize`);
+2. rolling k3s upgrade: etcd snapshot, servers one at a time (cordon →
+   new binary → restart → Ready on the new version → uncordon), then agents
+   (drain instead of cordon);
+3. node removal, highest CT ID first: cordon → drain → delete node (kubectl
+   on main1) → stop → destroy (only with the cluster tag); the data
+   directory is kept;
+4. new nodes, servers first;
+5. readiness check, then the state ConfigMap.
+
+The target spec is stored as `pending` in `state.json` before the first
+step. `spec.yaml`, `layout` and the version are replaced only after the last
+step, so `resume` continues the same operation.
+
+## Cluster state ConfigMap
+
+`kube-system/pk3s-state` holds `spec.yaml`, `layout.json`, `k3s-version`
+and `updated-at`. It is written through `kubectl apply -f -` on main1 at the
+end of every create/update. The host state stays authoritative, because it
+is needed before main1 exists (creation), while main1 restarts (upgrade),
+and for cleanup after failures. The ConfigMap is a recovery source: with no
+host state, pk3s finds main1 by the `pk3s-<name>` tag and rebuilds
+`state.json`, `spec.yaml`, `secrets.json` (tokens re-read from main1) and
+the kubeconfig.
 
 ### Remote mode: run from a workstation (planned)
 

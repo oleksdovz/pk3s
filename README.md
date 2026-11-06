@@ -21,7 +21,7 @@ or interrupted deployment can be resumed.
 ## Features
 
 - Keyboard-driven TUI with panels and live validation. Also has a scriptable CLI.
-- Single-server clusters (SQLite) and 3/5/7-server clusters with embedded etcd. Quorum rules are enforced.
+- Embedded etcd for every cluster (1, 3, 5 or 7 servers). Servers can be added later as plain joins, and etcd snapshots are taken before upgrades. Quorum rules are enforced.
 - Static networking for every container: IP, prefix, gateway, DNS. Hostnames use a configurable prefix.
 - Conflict checks for CT IDs, hostnames, IPs (existing guests, host bridges, ping), storage capacity, templates and bridges.
 - No `curl | sh`. The k3s binary is downloaded from GitHub releases for a pinned version and verified against the release SHA-256 file.
@@ -107,9 +107,9 @@ pk3s apply -f lab.yaml
 | Change in the spec | What happens |
 |--------------------|--------------|
 | `agents` up | new agents are created and joined, with the next free CT ID and IP |
-| `agents` down | the agent with the highest CT ID is drained, deleted from Kubernetes and destroyed; its data directory stays on the host |
-| `servers` 3→5→7 | new servers join embedded etcd one at a time |
-| `k3s.version` (exact) | rolling upgrade: datastore backup (etcd snapshot or SQLite copy), servers one by one (cordon), then agents (drain, 5 min timeout), each waiting for `Ready` on the new version |
+| `agents` down | the agent with the highest CT ID goes through cordon → drain → delete node (kubectl on main1), then its container is stopped and destroyed; the data directory stays on the host |
+| `servers` 1→3→5→7 | new servers join embedded etcd one at a time |
+| `k3s.version` (exact) | rolling upgrade: etcd snapshot, then servers one by one (cordon), then agents (drain, 5 min timeout), each waiting for `Ready` on the new version |
 | CPU / RAM / disk / autostart | `pct set` / `pct resize` on the running containers (disks only grow) |
 
 Existing nodes always keep their CT ID, IP and data directory.
@@ -117,18 +117,27 @@ Existing nodes always keep their CT ID, IP and data directory.
 The following are rejected by validation:
 
 - downgrades, or skipping a minor version;
-- going from 1 to 3 servers (needs SQLite → etcd conversion) and removing servers (not supported yet);
+- removing servers (not supported yet);
 - changing the security profile, k3s networking, disabled components, persistent data, the hostname prefix, or the network of an existing node.
 
 A channel such as `stable` never upgrades a running cluster; set an exact
 version to upgrade. An interrupted update continues with `pk3s resume <name>`.
+
+### Cluster state inside the cluster
+
+After every successful `apply`, pk3s writes the spec, the node layout and the
+k3s version (no secrets) to the ConfigMap `kube-system/pk3s-state`. If the
+host-side state in `/var/lib/pk3s` is missing (reinstalled host, another
+Proxmox node), `pk3s plan`/`apply` finds the cluster's containers by the
+`pk3s-<name>` tag and restores the state from that ConfigMap through main1.
+Join tokens are re-read from main1, and the kubeconfig is exported again.
 
 ### Example spec
 
 ```yaml
 name: lab
 hostname_prefix: k3s-lab        # containers: k3s-lab-main1.. (servers), k3s-lab-node1.. (agents)
-servers: 3                      # 1 = SQLite; 3/5/7 = embedded etcd
+servers: 3                      # 1/3/5/7, always embedded etcd
 agents: 2
 ctid_start: 5000
 template:

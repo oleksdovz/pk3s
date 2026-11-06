@@ -1,4 +1,5 @@
-# Smallest cluster: one main (server) node, no agents. SQLite datastore.
+# Smallest cluster: one main (server) node, no agents. Embedded etcd, so
+# servers can be added later (servers: 3).
 # Workloads run on the main node. Good for a first test.
 name: solo
 servers: 1

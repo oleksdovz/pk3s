@@ -37,6 +37,7 @@ type sim struct {
 	failOnce map[string]bool // command prefix -> fail the next call
 	foreign  map[int]bool    // pre-existing CTs not owned by pk3s
 	kubectl  []string        // kubectl invocations (without the binary)
+	stateCM  string          // last applied pk3s-state ConfigMap
 }
 
 type simCT struct {
@@ -153,6 +154,9 @@ func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Resul
 	}
 	if args[0] == k3s.BinaryPath && len(args) > 1 && args[1] == "kubectl" && (len(args) < 3 || args[2] != "get") {
 		s.kubectl = append(s.kubectl, strings.Join(args[2:], " "))
+		if args[2] == "apply" {
+			s.stateCM = stdin
+		}
 		if args[2] == "delete" && args[3] == "node" {
 			for _, c := range s.cts {
 				if strings.Contains(c.files[k3s.ConfigPath], "node-name: "+args[4]+"\n") {
@@ -172,6 +176,11 @@ func (s *sim) exec(id int, ct *simCT, args []string, stdin string) (runner.Resul
 		return ok("")
 	case strings.HasPrefix(cmd, "systemctl restart --no-block"):
 		return ok("")
+	case cmd == k3s.BinaryPath+" kubectl get configmap pk3s-state -n kube-system -o json":
+		if s.stateCM == "" {
+			return runner.Result{ExitCode: 1}, fmt.Errorf("NotFound")
+		}
+		return ok(s.stateCM)
 	case cmd == "systemctl is-system-running":
 		return ok("running")
 	case cmd == "/bin/sh -s":

@@ -43,6 +43,7 @@ func (h *harness) update(t *testing.T, mutate func(*spec.ClusterSpec), toVersion
 	st, _ := h.store.Load()
 	sec, _ := h.store.LoadSecrets()
 	h.sim.calls = nil
+	h.sim.kubectl = nil
 	h.eng = h.newEngine(p, st, sec, h.eng.Fetch.(fakeFetch).dir)
 	if err := h.eng.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func TestScaleDownRemovesHighestAgent(t *testing.T) {
 	if _, ok := h.sim.cts[5003]; !ok {
 		t.Error("CT 5003 must be kept")
 	}
-	want := []string{"drain lab-node2 --ignore-daemonsets --delete-emptydir-data --timeout=5m0s", "delete node lab-node2 --ignore-not-found"}
+	want := []string{"cordon lab-node2", "drain lab-node2 --ignore-daemonsets --delete-emptydir-data --timeout=5m0s", "delete node lab-node2 --ignore-not-found", "apply -f -"}
 	if !slices.Equal(h.sim.kubectl, want) {
 		t.Errorf("kubectl calls: %v", h.sim.kubectl)
 	}
@@ -148,6 +149,27 @@ func TestResourceChange(t *testing.T) {
 	}
 	if strings.Contains(lines, "pct set 5000") {
 		t.Error("servers did not change and must not be touched")
+	}
+}
+
+func TestStatePublishedToConfigMap(t *testing.T) {
+	h := deployed(t)
+	if !strings.Contains(h.sim.stateCM, `"namespace":"kube-system"`) || !strings.Contains(h.sim.stateCM, `"name":"pk3s-state"`) {
+		t.Fatalf("ConfigMap not applied after create: %s", h.sim.stateCM)
+	}
+	h.update(t, func(s *spec.ClusterSpec) { s.Agents = 3 }, "")
+	st, err := k3s.ParseStateConfigMap([]byte(h.sim.stateCM))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(st.SpecYAML, "agents: 3") || !strings.Contains(st.LayoutJSON, `"hostname":"lab-node3"`) {
+		t.Errorf("ConfigMap not updated after scale-up: %+v", st)
+	}
+	sec, _ := h.store.LoadSecrets()
+	for _, s := range []string{sec.ServerToken, sec.AgentToken, secureServer, secureAgent} {
+		if strings.Contains(h.sim.stateCM, s) {
+			t.Fatal("secret in state ConfigMap")
+		}
 	}
 }
 

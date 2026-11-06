@@ -61,6 +61,8 @@ const (
 	StepBackup      StepKind = "datastore-backup"
 	StepUpgradeNode StepKind = "k3s-upgrade"
 	StepRemoveNode  StepKind = "node-remove"
+	// StepPublishState writes the cluster state ConfigMap (create and update).
+	StepPublishState StepKind = "publish-state"
 )
 
 // Step is one unit of work; ID is stable across runs and used for resume.
@@ -158,11 +160,13 @@ func BuildLayout(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string, layo
 			usedIP[a] = true
 		}
 	}
-	if s.EmbeddedEtcd() {
+	// Always embedded etcd, also for a single server: adding servers later
+	// is a plain join and etcd snapshots are available for backups.
+	if s.Servers == 1 {
+		p.Datastore = "embedded etcd, 1 server (no control-plane fault tolerance; grow to 3 servers to tolerate 1 failure)"
+	} else {
 		p.Datastore = fmt.Sprintf("embedded etcd (%d servers, quorum %d, tolerates %d server failure(s))",
 			s.Servers, s.Servers/2+1, (s.Servers-1)/2)
-	} else {
-		p.Datastore = "SQLite on the single server (no control-plane redundancy)"
 	}
 
 	for i := 0; i < s.TotalNodes(); i++ {
@@ -313,6 +317,7 @@ func buildSteps(p *Plan, inv *pve.Inventory) []Step {
 	}
 	add(StepClusterReady, -1, "Wait for all nodes Ready")
 	add(StepKubeconfig, -1, "Export kubeconfig")
+	add(StepPublishState, -1, "Record cluster state in ConfigMap kube-system/pk3s-state")
 	return steps
 }
 
@@ -352,7 +357,7 @@ func (p *Plan) NodeConfig(n Node, serverToken, agentToken, joinToken string) k3s
 	c.AgentToken = agentToken
 	if n.Bootstrap {
 		c.Token = serverToken
-		c.ClusterInit = p.Spec.EmbeddedEtcd()
+		c.ClusterInit = true
 	} else {
 		c.Server = p.ServerURL()
 		c.Token = joinToken

@@ -6,7 +6,7 @@ IP addresses for your host, then run `pk3s plan -f <file>` before `apply`.
 
 | File | Main | Nodes | What it shows |
 |------|------|-------|---------------|
-| [01-single-main.yaml](01-single-main.yaml) | 1 | 0 | Smallest cluster, SQLite, workloads on the main node |
+| [01-single-main.yaml](01-single-main.yaml) | 1 | 0 | Smallest cluster (embedded etcd, can grow to 3 servers), workloads on the main node |
 | [02-dev-small.yaml](02-dev-small.yaml) | 1 | 2 | Hostname prefix, traefik disabled, SSH key, timezone |
 | [03-etcd-3-main.yaml](03-etcd-3-main.yaml) | 3 | 3 | Embedded etcd, pinned k3s version, extra TLS SANs, persistent data, custom autostart |
 | [04-per-node-network.yaml](04-per-node-network.yaml) | 1 | 3 | Per-container IP, DNS and gateway overrides |
