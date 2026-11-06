@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/oleksdovz/pk3s/internal/app"
 	"github.com/oleksdovz/pk3s/internal/engine"
@@ -343,4 +344,51 @@ func TestDestroyNeedsExactName(t *testing.T) {
 	if !m.destroyDone || m.destroyErr != nil {
 		t.Fatalf("destroy should run after typing the name: done=%v err=%v", m.destroyDone, m.destroyErr)
 	}
+}
+
+// Every frame must fit the terminal exactly; a taller frame scrolls the
+// alternate screen and leaves garbage after a resize.
+func TestFrameFitsTerminalAfterResize(t *testing.T) {
+	m, _ := newModel(t)
+	m = send(t, m, key("enter")) // wizard
+	m = editField(t, m, "Cluster name", "lab")
+	m = gotoPage(t, m, "Node network")
+	screens := map[string]Model{"wizard": m}
+
+	r := m
+	r.plan, _ = planFor(t)
+	r.screen = scrRunning
+	for _, st := range r.plan.Steps[:6] {
+		r.stepStatus[st.ID] = "done"
+		r.logs = append(r.logs, "[1/24] DONE  "+st.Title+" with a long tail to force truncation in the log panel")
+	}
+	screens["running"] = r
+
+	for name, base := range screens {
+		for _, size := range [][2]int{{140, 50}, {90, 30}, {60, 20}, {40, 12}} {
+			mm := send(t, base, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			out := mm.View()
+			lines := strings.Split(out, "\n")
+			if len(lines) != size[1] {
+				t.Errorf("%s %dx%d: %d lines", name, size[0], size[1], len(lines))
+			}
+			for i, l := range lines {
+				if w := lipglossWidth(l); w > size[0] {
+					t.Errorf("%s %dx%d: line %d is %d wide", name, size[0], size[1], i, w)
+					break
+				}
+			}
+		}
+	}
+}
+
+func lipglossWidth(s string) int { return lipgloss.Width(s) }
+
+func planFor(t *testing.T) (*plan.Plan, error) {
+	t.Helper()
+	s := spec.Default()
+	s.Name, s.Servers, s.Agents = "test-lb1", 1, 2
+	s.Network = spec.Network{Bridge: "vmbr0", FirstIP: "192.168.0.60", Prefix: 24, Gateway: "192.168.0.1"}
+	s.Template = spec.Template{Storage: "local", Name: "debian-13-standard_13.1-2_amd64.tar.zst"}
+	return plan.Build(s, testutil.HPInventory(t), "v1.37.2+k3s1")
 }

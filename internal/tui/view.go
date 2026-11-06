@@ -14,9 +14,44 @@ import (
 	"github.com/oleksdovz/pk3s/internal/validate"
 )
 
+// chromeLines is header + flash + hint + function-key bar.
+const chromeLines = 4
+
+// screenSize returns the terminal size (with defaults before the first
+// WindowSizeMsg).
+func (m Model) screenSize() (int, int) {
+	w, h := m.width, m.height
+	if w <= 0 {
+		w = 100
+	}
+	if h <= 0 {
+		h = 30
+	}
+	return w, h
+}
+
+// bodyHeight is the number of lines available between header and footer.
+func (m Model) bodyHeight() int {
+	_, h := m.screenSize()
+	return max(3, h-chromeLines)
+}
+
+// fit cuts or pads text to exactly h lines no wider than w, so the frame
+// never exceeds the terminal (which would scroll and leave garbage).
+func fit(s string, w, h int) string {
+	lines := strings.Split(lipgloss.NewStyle().MaxWidth(w).Render(s), "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
-	w := max(m.width, 60)
+	w, _ := m.screenSize()
 	var body, hint string
 	switch m.screen {
 	case scrLoading:
@@ -62,12 +97,18 @@ func (m Model) View() string {
 		body = stModal.Width(min(w-4, 100)).Render(stTitle.Render("Help") + "\n\n" + m.helpText())
 	}
 
-	header := stHeader.Width(w).Render(m.headerText())
+	header := fit(stHeader.Width(w).Render(truncate(m.headerText(), w)), w, 1)
 	flash := ""
 	if m.flash != "" {
-		flash = stWarn.Render(" " + m.flash)
+		flash = stWarn.Render(truncate(" "+m.flash, w))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, flash, stDim.Render(" "+hint), m.fkeyBar(w))
+	return strings.Join([]string{
+		header,
+		fit(body, w, m.bodyHeight()),
+		fit(flash, w, 1),
+		fit(stDim.Render(truncate(" "+hint, w)), w, 1),
+		fit(m.fkeyBar(w), w, 1),
+	}, "\n")
 }
 
 func (m Model) headerText() string {
@@ -82,7 +123,7 @@ func (m Model) headerText() string {
 // number then label; unavailable slots are dimmed.
 func (m Model) fkeyBar(w int) string {
 	labels := m.fkeyLabels()
-	slot := max(6, w/10)
+	slot := max(3, w/10)
 	var b strings.Builder
 	for n := 1; n <= 10; n++ {
 		num := fmt.Sprintf("%d", n)
@@ -229,7 +270,7 @@ func (m Model) viewWizard(w int) string {
 	}
 	right.WriteString("\n")
 
-	avail := max(5, m.height-14-strings.Count(sec.intro, "\n"))
+	avail := max(3, m.bodyHeight()-10-strings.Count(sec.intro, "\n"))
 	start, end := window(len(sec.fields), m.fieldIdx, avail)
 	if start > 0 {
 		right.WriteString(stDim.Render("  ↑ more") + "\n")
@@ -356,7 +397,7 @@ func (m Model) viewRunning(w int) string {
 			cur = i
 		}
 	}
-	rows := max(5, m.height-6)
+	rows := max(1, m.bodyHeight()-3) // panel border + title
 	start, end := window(len(steps), cur, rows)
 	var left strings.Builder
 	left.WriteString(stTitle.Render(fmt.Sprintf("Steps (%d)", len(steps))) + "\n")

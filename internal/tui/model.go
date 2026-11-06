@@ -210,8 +210,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.view.Width = max(20, msg.Width-4)
-		m.view.Height = max(5, msg.Height-6)
-		return m, nil
+		m.view.Height = max(3, m.bodyHeight()-3) // panel border + title
+		// Repaint from scratch so no remains of the old size stay on screen.
+		return m, tea.ClearScreen
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
