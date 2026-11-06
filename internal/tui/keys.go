@@ -178,7 +178,7 @@ func (m Model) startNew() (tea.Model, tea.Cmd) {
 	m.screen = scrWizard
 	m.flash = "New cluster: enter a name first."
 	m.be.Logf("tui: new cluster wizard")
-	return m, nil
+	return m, m.refreshInventory()
 }
 
 func (m Model) editCluster(name string) (tea.Model, tea.Cmd) {
@@ -197,16 +197,23 @@ func (m Model) editCluster(name string) (tea.Model, tea.Cmd) {
 	m.revalidate()
 	m.screen = scrWizard
 	m.be.Logf("tui: editing deployed cluster %q", name)
+	cmd := m.refreshInventory()
 	m.flash = "Editing deployed cluster " + name + ": change agents, servers, resources or k3s version, then F9."
-	return m, nil
+	return m, cmd
 }
 
 func (m Model) startPlan() (tea.Model, tea.Cmd) {
 	m.screen = scrPreparing
-	s, inv := m.spec, m.inv
+	s, fallback := m.spec, m.inv
 	return m, tea.Batch(m.spin.Tick, func() tea.Msg {
+		// Re-read the host: containers may have been created or destroyed
+		// since the TUI started (by pk3s or anyone else).
+		inv, err := m.be.Inventory(m.ctx)
+		if err != nil {
+			inv = fallback
+		}
 		prep, err := m.be.Prepare(m.ctx, s, inv)
-		return preparedMsg{prep, err}
+		return preparedMsg{prep, err, inv}
 	})
 }
 

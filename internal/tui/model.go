@@ -64,8 +64,11 @@ type (
 	preparedMsg struct {
 		prep *app.Prepared
 		err  error
+		inv  *pve.Inventory // fresh inventory used for the plan
 	}
-	resumeMsg struct {
+	// invRefreshMsg updates the inventory without changing the screen.
+	invRefreshMsg struct{ inv *pve.Inventory }
+	resumeMsg     struct {
 		p   *plan.Plan
 		err error
 	}
@@ -173,6 +176,18 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.spin.Tick, m.loadInventory(), tea.WindowSize())
 }
 
+// refreshInventory re-reads the host in the background (after operations
+// that create or destroy containers).
+func (m Model) refreshInventory() tea.Cmd {
+	return func() tea.Msg {
+		inv, err := m.be.Inventory(m.ctx)
+		if err != nil {
+			return nil
+		}
+		return invRefreshMsg{inv}
+	}
+}
+
 func (m Model) loadInventory() tea.Cmd {
 	return func() tea.Msg {
 		inv, err := m.be.Inventory(m.ctx)
@@ -252,7 +267,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = scrMenu
 		return m, nil
 	case preparedMsg:
+		if msg.inv != nil {
+			m.inv = msg.inv
+		}
 		return m.onPrepared(msg)
+	case invRefreshMsg:
+		if msg.inv != nil {
+			m.inv = msg.inv
+			if m.screen == scrWizard {
+				m.revalidate()
+			}
+		}
+		return m, nil
 	case resumeMsg:
 		if msg.err != nil {
 			m.flash = "resume: " + msg.err.Error()
@@ -280,14 +306,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = scrDone
 		m.clusters, _ = m.be.Clusters()
-		return m, nil
+		return m, m.refreshInventory()
 	case destroyPlanMsg:
 		return m.onDestroyPlan(msg)
 	case destroyDoneMsg:
 		m.destroying, m.destroyDone = false, true
 		m.destroyLog, m.destroyErr = msg.log, msg.err
 		m.clusters, _ = m.be.Clusters()
-		return m, nil
+		return m, m.refreshInventory()
 	case exportMsg:
 		if msg.err != nil {
 			m.flash = "export: " + msg.err.Error()

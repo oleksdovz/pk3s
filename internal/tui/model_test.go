@@ -92,7 +92,7 @@ func collect(cmd tea.Cmd) []tea.Msg {
 			return
 		}
 		switch msg.(type) {
-		case invMsg, preparedMsg, statusMsg, resumeMsg, destroyPlanMsg, destroyDoneMsg, exportMsg:
+		case invMsg, preparedMsg, statusMsg, resumeMsg, destroyPlanMsg, destroyDoneMsg, exportMsg, invRefreshMsg:
 			ch <- []tea.Msg{msg}
 		default:
 			ch <- nil
@@ -503,5 +503,31 @@ func TestEditDeployedClusterScaleUp(t *testing.T) {
 	m = send(t, m, key("enter"))
 	if m.fieldErr == "" || m.spec.Name != "test002" {
 		t.Fatal("deployed cluster must not be renamed")
+	}
+}
+
+// The plan must use the host as it is now, not as it was when the TUI
+// started (containers may have been destroyed since).
+func TestPlanUsesFreshInventory(t *testing.T) {
+	m, be := newModel(t)
+	stale := *be.inv
+	stale.Guests = append(append([]pve.Guest{}, stale.Guests...), pve.Guest{VMID: 5100, Name: "gone", Type: "lxc", IPs: []string{"192.168.0.60"}})
+	m.inv = &stale // what the TUI saw at start
+	m = send(t, m, key("enter"))
+	m = editField(t, m, "Cluster name", "fresh")
+	m = editField(t, m, "First CT ID", "5100")
+	m = gotoPage(t, m, "Network")
+	m = editField(t, m, "First IP", "192.168.0.60")
+	m = gotoPage(t, m, "Security & host")
+	m.focus = 1
+	for i, f := range m.sections[m.secIdx].fields {
+		if strings.HasPrefix(f.label, "I accept") {
+			m.fieldIdx = i
+		}
+	}
+	m = send(t, m, key(" "))
+	m = send(t, m, key("f9"))
+	if m.screen != scrReview || m.prepared.Findings.HasErrors() {
+		t.Fatalf("plan should use the fresh inventory without CT 5100: %v", m.prepared.Findings)
 	}
 }
