@@ -1,0 +1,4 @@
+/pk3s
+/dist/
+*.yaml.local
+/cluster.yaml

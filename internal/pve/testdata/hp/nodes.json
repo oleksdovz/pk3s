@@ -1,0 +1,1 @@
+[{"cpu":0.0343077049046098,"disk":17297063936,"id":"node/hp","level":"","maxcpu":12,"maxdisk":100861726720,"maxmem":67190263808,"mem":3110141952,"node":"hp","ssl_fingerprint":"E5:CC:A5:EF:68:DE:5D:B5:C8:5E:26:F4:DE:4A:C9:5A:03:E7:D7:26:45:C1:CE:6D:BA:3D:5F:89:3A:8F:7D:67","status":"online","type":"node","uptime":3292}]
