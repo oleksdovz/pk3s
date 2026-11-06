@@ -4,8 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oleksdovz/pk3s/internal/app"
 	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/spec"
+	"github.com/oleksdovz/pk3s/internal/state"
 	"github.com/oleksdovz/pk3s/internal/testutil"
 )
 
@@ -32,5 +34,20 @@ func TestUpdatePlanRendering(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
 		}
+	}
+}
+
+func TestStatusCountsLegacySteps(t *testing.T) {
+	r := &app.StatusReport{
+		Spec:      spec.ClusterSpec{Name: "old"},
+		StepOrder: []plan.Step{{ID: "host-modules"}, {ID: "provision/old-main1"}},
+		Steps: map[string]state.StepState{
+			"host-modules":        {Status: state.StatusDone},
+			"ct-create/old-main1": {Status: state.StatusDone},
+			"kubeconfig":          {Status: state.StatusDone},
+		},
+	}
+	if out := Status(r); !strings.Contains(out, "Deployment steps: 3/3 done") {
+		t.Fatal(out)
 	}
 }

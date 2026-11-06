@@ -136,7 +136,17 @@ func Status(r *app.StatusReport) string {
 		}
 	}
 	total := len(r.StepOrder)
-	if matched == 0 && len(r.Steps) > 0 {
+	inPlan := map[string]bool{}
+	for _, st := range r.StepOrder {
+		inPlan[st.ID] = true
+	}
+	legacy := false
+	for id := range r.Steps {
+		if !inPlan[id] && !strings.HasPrefix(id, "op-") {
+			legacy = true
+		}
+	}
+	if legacy || (matched == 0 && len(r.Steps) > 0) {
 		// Deployed by an older pk3s with different step names: count the
 		// steps recorded in the state instead.
 		done, total = 0, len(r.Steps)
