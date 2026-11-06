@@ -20,8 +20,9 @@ unless stated explicitly.
 
 ## Next
 - (done) TUI model tests, spec/state/runner tests.
-- README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.
-- Live test on `hp` (only after explicit approval; creates containers).
+- (done) README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.
+- (done) Read-only `pk3s init` / `pk3s plan` on `hp`: inventory correct; 192.168.0.51 is taken by a LAN device (MAC 10:66:6a:53:1c:c9), .52-.65 free.
+- Live `pk3s apply` on `hp` (only after explicit approval; creates containers). Suggested first run: 1 server + 1 agent from 192.168.0.52.
 
 ## Planned (later phases)
 - Remote mode: `pk3s --host <proxmox>` from macOS (arm64) / Windows / Linux over SSH.
