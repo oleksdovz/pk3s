@@ -99,11 +99,12 @@ type HostInfo struct {
 	Arch string
 	Root bool
 	PVE  bool
+	Now  int64 // host clock (unix seconds) at probe time
 }
 
 // Probe checks the host: architecture, root, Proxmox tools.
 func (c Client) Probe(ctx context.Context) (HostInfo, error) {
-	out, err := c.Run(ctx, `uname -m; id -u; command -v pct >/dev/null && echo pve || echo nopve`, nil)
+	out, err := c.Run(ctx, `uname -m; id -u; command -v pct >/dev/null && echo pve || echo nopve; date +%s`, nil)
 	if err != nil {
 		return HostInfo{}, err
 	}
@@ -118,7 +119,11 @@ func (c Client) Probe(ctx context.Context) (HostInfo, error) {
 	case "aarch64":
 		arch = "arm64"
 	}
-	return HostInfo{Arch: arch, Root: f[1] == "0", PVE: f[2] == "pve"}, nil
+	info := HostInfo{Arch: arch, Root: f[1] == "0", PVE: f[2] == "pve"}
+	if len(f) > 3 {
+		fmt.Sscanf(f[3], "%d", &info.Now)
+	}
+	return info, nil
 }
 
 // Binary returns the Linux pk3s binary for arch: the -remote-bin override,
@@ -282,4 +287,68 @@ func Exec(ctx context.Context, t Target, remoteBin string, args []string, stdout
 		return 1, fmt.Errorf("run ssh: %w (is the OpenSSH client installed?)", err)
 	}
 	return 0, nil
+}
+
+// FetchesKubeconfig reports whether a command can create or update a
+// cluster (TUI, apply, resume), so kubeconfigs are fetched afterwards.
+func FetchesKubeconfig(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--root" || a == "--log-dir" || a == "--kubeconfig-dir":
+			i++ // skip the flag's value
+			continue
+		case strings.HasPrefix(a, "-"):
+			continue
+		}
+		return a == "tui" || a == "apply" || a == "resume"
+	}
+	return true // no command: TUI
+}
+
+// FetchKubeconfigs copies the kubeconfig of every cluster changed on the
+// host since `since` into dir (local, mode 0600). dir "-" disables it.
+func (c Client) FetchKubeconfigs(ctx context.Context, bin string, since int64, dir string) ([]string, error) {
+	if dir == "-" || since == 0 {
+		return nil, nil
+	}
+	if dir == "" {
+		dir = "."
+	}
+	out, err := c.Run(ctx, Command(bin, "list", "--changed-since", fmt.Sprint(since)), nil)
+	if err != nil {
+		return nil, fmt.Errorf("list changed clusters: %w", err)
+	}
+	var saved []string
+	for _, name := range strings.Fields(out) {
+		res, err := c.R.Run(ctx, runner.Cmd{Name: "ssh", Args: append(c.T.sshArgs(false), Command(bin, "--kubeconfig-dir=-", "kubeconfig", name)), SecretOutput: true})
+		if err != nil {
+			return saved, fmt.Errorf("fetch kubeconfig of %s: %w", name, err)
+		}
+		path := filepath.Join(dir, name+"-kubeconfig.yaml")
+		if err := os.WriteFile(path, res.Stdout, 0o600); err != nil {
+			return saved, err
+		}
+		_ = os.Chmod(path, 0o600)
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		saved = append(saved, path)
+	}
+	return saved, nil
+}
+
+// StripFlag removes "--name VALUE" and "--name=VALUE" from args.
+func StripFlag(args []string, name string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == name && i+1 < len(args):
+			i++
+		case strings.HasPrefix(args[i], name+"="):
+		default:
+			out = append(out, args[i])
+		}
+	}
+	return out
 }

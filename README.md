@@ -64,6 +64,12 @@ pk3s --host root@pve apply -f lab.yaml
 pk3s --host root@pve kubeconfig lab > ~/.kube/lab.yaml
 ```
 
+After every successful create or update, pk3s writes `<name>-kubeconfig.yaml`
+(mode 0600) into the directory you started it from, locally and in remote
+mode alike: `KUBECONFIG=./lab-kubeconfig.yaml kubectl get nodes`. Use
+`--kubeconfig-dir DIR` to choose another directory or `--kubeconfig-dir -`
+to turn it off.
+
 pk3s checks that the host runs Proxmox VE and that you are root. It uploads
 the Linux pk3s binary for the host's architecture to
 `/var/lib/pk3s/bin/pk3s-<sha256>`, verifies its SHA-256, and runs it there.

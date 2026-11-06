@@ -32,6 +32,37 @@ type App struct {
 	Version    string
 	// Log is the activity log (nil disables logging).
 	Log *logx.Logger
+	// KubeconfigDir receives <name>-kubeconfig.yaml after every successful
+	// create/update ("" or "-" disables; the CLI defaults to ".").
+	KubeconfigDir string
+}
+
+// KubeconfigFile is the local file name of a cluster's kubeconfig.
+func KubeconfigFile(name string) string { return name + "-kubeconfig.yaml" }
+
+// ExportKubeconfig copies the cluster's kubeconfig to dir (mode 0600) and
+// returns the absolute path.
+func (a *App) ExportKubeconfig(name, dir string) (string, error) {
+	store := &state.Store{Root: a.Root, Cluster: name}
+	data, err := os.ReadFile(store.Path("kubeconfig"))
+	if err != nil {
+		return "", fmt.Errorf("no kubeconfig for %q: %w", name, err)
+	}
+	if dir == "" {
+		dir = "."
+	}
+	path := filepath.Join(dir, KubeconfigFile(name))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", err
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	a.Logf("kubeconfig of %q copied to %s", name, path)
+	return path, nil
 }
 
 // DefaultLogDir holds the activity log.
@@ -230,6 +261,10 @@ func dirNonEmpty(p string) bool {
 type Session struct {
 	Engine *engine.Engine
 	Store  *state.Store
+	app    *App
+	// LocalKubeconfig is where the kubeconfig was copied after Run ("" if
+	// not copied).
+	LocalKubeconfig string
 }
 
 // Run executes the plan. When every step has finished, the node layout is
@@ -248,7 +283,19 @@ func (s *Session) Run(ctx context.Context) error {
 		st.K3sVersion = p.K3sVersion
 		st.Pending = nil
 	}
-	return s.Store.Save(st)
+	if err := s.Store.Save(st); err != nil {
+		return err
+	}
+	if s.app != nil && s.app.KubeconfigDir != "" && s.app.KubeconfigDir != "-" {
+		path, err := s.app.ExportKubeconfig(p.Spec.Name, s.app.KubeconfigDir)
+		if err != nil {
+			// The cluster is fine; only the local copy failed.
+			s.app.Logf("copy kubeconfig of %q: %v", p.Spec.Name, err)
+		} else {
+			s.LocalKubeconfig = path
+		}
+	}
+	return nil
 }
 
 // Close releases the store lock.
@@ -314,7 +361,7 @@ func (a *App) NewSession(p *plan.Plan, resume bool, notify func(engine.Event)) (
 		},
 	}
 	a.Logf("session start: cluster %q, mode %s, resume=%v, k3s %s, %d steps", p.Spec.Name, p.Mode, resume, p.K3sVersion, len(p.Steps))
-	return &Session{Engine: eng, Store: store}, nil
+	return &Session{Engine: eng, Store: store, app: a}, nil
 }
 
 // LoadForResume rebuilds the plan of an existing cluster from its saved

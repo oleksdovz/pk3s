@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -58,6 +59,9 @@ Remote mode (run from a workstation: macOS, Windows, Linux):
 Global flags:
   --root DIR                 state directory (default /var/lib/pk3s)
   --log-dir DIR              activity log directory (default /var/log/pk3s)
+  --kubeconfig-dir DIR       where <name>-kubeconfig.yaml is written after every
+                             successful create/update (default: current
+                             directory; "-" disables)
 `
 
 func main() {
@@ -73,7 +77,7 @@ func run(args []string) (err error) {
 		return runRemote(t, rest)
 	}
 
-	root, logDir := state.DefaultRoot, app.DefaultLogDir
+	root, logDir, kubeDir := state.DefaultRoot, app.DefaultLogDir, "."
 	// Extract --root / --log-dir anywhere in the arguments.
 	var rest []string
 	for i := 0; i < len(args); i++ {
@@ -83,6 +87,11 @@ func run(args []string) (err error) {
 			i++
 		case strings.HasPrefix(args[i], "--root="):
 			root = strings.TrimPrefix(args[i], "--root=")
+		case args[i] == "--kubeconfig-dir" && i+1 < len(args):
+			kubeDir = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--kubeconfig-dir="):
+			kubeDir = strings.TrimPrefix(args[i], "--kubeconfig-dir=")
 		case args[i] == "--log-dir" && i+1 < len(args):
 			logDir = args[i+1]
 			i++
@@ -113,6 +122,7 @@ func run(args []string) (err error) {
 
 	a := app.New(root)
 	a.Version = version
+	a.KubeconfigDir = kubeDir
 	if err := a.OpenLog(logDir); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: activity log disabled: %v\n", err)
 	}
@@ -141,14 +151,7 @@ func run(args []string) (err error) {
 	case "status":
 		return cmdStatus(ctx, a, rest)
 	case "list":
-		names, err := state.List(root)
-		if err != nil {
-			return err
-		}
-		for _, n := range names {
-			fmt.Println(n)
-		}
-		return nil
+		return cmdList(root, rest)
 	case "destroy":
 		return cmdDestroy(ctx, a, rest)
 	case "kubeconfig":
@@ -333,9 +336,15 @@ func execute(ctx context.Context, a *app.App, p *plan.Plan, resume bool) error {
 	fmt.Println()
 	if p.Mode == plan.ModeUpdate {
 		fmt.Printf("Cluster %q updated.\n\n", p.Spec.Name)
-		return cmdStatus(ctx, a, []string{p.Spec.Name})
+		if err := cmdStatus(ctx, a, []string{p.Spec.Name}); err != nil {
+			return err
+		}
+	} else {
+		fmt.Print(report.Summary(p, sess.Store.Path("kubeconfig")))
 	}
-	fmt.Print(report.Summary(p, sess.Store.Path("kubeconfig")))
+	if sess.LocalKubeconfig != "" {
+		fmt.Printf("\nKubeconfig copied to %s (mode 0600)\n  KUBECONFIG=%s kubectl get nodes\n", sess.LocalKubeconfig, sess.LocalKubeconfig)
+	}
 	return nil
 }
 
@@ -437,13 +446,19 @@ func runRemote(t remote.Target, args []string) error {
 	if err != nil {
 		return err
 	}
-	p := remote.Rewrite(args)
+	localDir := kubeconfigDir(args)
+	p := remote.Rewrite(remote.StripFlag(args, "--kubeconfig-dir"))
+	// The remote pk3s must not write kubeconfigs into its own working
+	// directory; they are fetched into the local one afterwards.
+	fetch := remote.FetchesKubeconfig(p.Args)
+	since := info.Now
+	p.Args = append([]string{"--kubeconfig-dir=-"}, p.Args...)
 	for idx, local := range p.Uploads {
 		rp, err := c.Upload(ctx, local)
 		if err != nil {
 			return err
 		}
-		p.Args[idx] = rp
+		p.Args[idx+1] = rp // shifted by --kubeconfig-dir
 	}
 	var out io.Writer = os.Stdout
 	var buf bytes.Buffer
@@ -454,6 +469,15 @@ func runRemote(t remote.Target, args []string) error {
 	code, err := remote.Exec(ctx, t, path, p.Args, out, tty)
 	if err != nil {
 		return err
+	}
+	if fetch {
+		saved, ferr := c.FetchKubeconfigs(ctx, path, since, localDir)
+		for _, f := range saved {
+			fmt.Fprintf(os.Stderr, "Kubeconfig saved to %s (mode 0600)\n", f)
+		}
+		if ferr != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", ferr)
+		}
 	}
 	if code != 0 {
 		os.Exit(code)
@@ -482,4 +506,48 @@ func cmdKubeconfig(a *app.App, args []string) error {
 	a.Logf("kubeconfig of %q printed to stdout", args[0])
 	_, err = os.Stdout.Write(data)
 	return err
+}
+
+// cmdList prints managed clusters. --changed-since UNIX lists only clusters
+// whose state changed since then (remote mode fetches their kubeconfigs).
+func cmdList(root string, args []string) error {
+	var since int64
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--changed-since" && i+1 < len(args) {
+			v, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return fmt.Errorf("--changed-since: %w", err)
+			}
+			since = v
+			i++
+		}
+	}
+	names, err := state.List(root)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		if since > 0 {
+			// state.json is saved by every create/update/resume.
+			fi, err := os.Stat((&state.Store{Root: root, Cluster: n}).Path("state.json"))
+			if err != nil || fi.ModTime().Unix() < since {
+				continue
+			}
+		}
+		fmt.Println(n)
+	}
+	return nil
+}
+
+// kubeconfigDir returns the local --kubeconfig-dir value for remote mode.
+func kubeconfigDir(args []string) string {
+	for i, a := range args {
+		if a == "--kubeconfig-dir" && i+1 < len(args) {
+			return args[i+1]
+		}
+		if v, ok := strings.CutPrefix(a, "--kubeconfig-dir="); ok {
+			return v
+		}
+	}
+	return "."
 }

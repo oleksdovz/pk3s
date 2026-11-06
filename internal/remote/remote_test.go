@@ -120,3 +120,48 @@ func TestSSHArgs(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestFetchesKubeconfig(t *testing.T) {
+	for args, want := range map[string]bool{
+		"":                true, // TUI
+		"apply -f x.yaml": true,
+		"resume lab":      true,
+		"--root /x apply": true,
+		"status lab":      false,
+		"plan -f x.yaml":  false,
+		"init lab -o -":   false,
+		"kubeconfig lab":  false,
+		"destroy lab":     false,
+	} {
+		if got := FetchesKubeconfig(strings.Fields(args)); got != want {
+			t.Errorf("%q: got %v", args, got)
+		}
+	}
+}
+
+func TestStripFlag(t *testing.T) {
+	got := StripFlag([]string{"apply", "--kubeconfig-dir", "/tmp", "-f", "x", "--kubeconfig-dir=/y"}, "--kubeconfig-dir")
+	if !reflect.DeepEqual(got, []string{"apply", "-f", "x"}) {
+		t.Fatal(got)
+	}
+}
+
+func TestFetchKubeconfigsWritesLocally(t *testing.T) {
+	dir := t.TempDir()
+	f := runner.NewFake()
+	f.OK("ssh -o BatchMode=no -T root@hp -- /var/lib/pk3s/bin/pk3s-x list --changed-since 100", "lab\n")
+	f.OK("ssh -o BatchMode=no -T root@hp -- /var/lib/pk3s/bin/pk3s-x --kubeconfig-dir=- kubeconfig lab", "apiVersion: v1\n")
+	saved, err := Client{T: Target{Host: "root@hp"}, R: f}.FetchKubeconfigs(context.Background(), "/var/lib/pk3s/bin/pk3s-x", 100, dir)
+	if err != nil || len(saved) != 1 {
+		t.Fatalf("%v %v %v", saved, err, f.CallLines())
+	}
+	fi, err := os.Stat(filepath.Join(dir, "lab-kubeconfig.yaml"))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("%v %v", fi, err)
+	}
+	for _, c := range f.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "kubeconfig lab") && !c.SecretOutput {
+			t.Error("kubeconfig output must be marked secret (not logged)")
+		}
+	}
+}

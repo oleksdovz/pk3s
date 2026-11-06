@@ -208,3 +208,35 @@ func TestNoStateErrorExplainsDestroyedCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSessionCopiesKubeconfigLocally(t *testing.T) {
+	root := t.TempDir()
+	out := t.TempDir()
+	cur := deployedSpec()
+	seed(t, root, cur)
+	store := &state.Store{Root: root, Cluster: "lab"}
+	if _, err := store.WriteFile("kubeconfig", []byte("apiVersion: v1\n")); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{Root: root, R: runner.NewFake(), Redactor: &runner.Redactor{}, KubeconfigDir: out}
+	tgt := cur
+	tgt.Agents = 3
+	prep, err := a.Prepare(context.Background(), tgt, testutil.HPInventory(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := a.NewSession(prep.Plan, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	sess.Engine.Plan.Steps = nil
+	if err := sess.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(out, "lab-kubeconfig.yaml")
+	fi, err := os.Stat(want)
+	if err != nil || fi.Mode().Perm() != 0o600 || sess.LocalKubeconfig != want {
+		t.Fatalf("kubeconfig not copied: %v %v %q", fi, err, sess.LocalKubeconfig)
+	}
+}

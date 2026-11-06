@@ -438,6 +438,9 @@ func (m Model) viewDone(w int) string {
 			b.WriteString(stOK.Render("Deployment finished") + "\n\n")
 			b.WriteString(report.Summary(m.plan, m.session.Store.Path("kubeconfig")))
 		}
+		if m.session.LocalKubeconfig != "" {
+			b.WriteString("\n" + stOK.Render("Kubeconfig copied to "+m.session.LocalKubeconfig) + "\n")
+		}
 	} else {
 		if m.runErr == engine.ErrStopped {
 			b.WriteString(stWarn.Render("Deployment stopped by user") + "\n\n")
