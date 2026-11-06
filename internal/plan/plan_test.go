@@ -84,6 +84,21 @@ func TestPerNodeNetworkOverride(t *testing.T) {
 	}
 }
 
+func TestStartupOrder(t *testing.T) {
+	p, err := plan.Build(baseSpec(), testutil.HPInventory(t), ver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	main := strings.Join(p.CreateOpts(p.Nodes[0]).Args(), " ")
+	node := strings.Join(p.CreateOpts(p.Nodes[3]).Args(), " ")
+	if !strings.Contains(main, "--onboot 1") || !strings.Contains(main, "--startup order=1,up=10") {
+		t.Errorf("main startup: %s", main)
+	}
+	if !strings.Contains(node, "--startup order=2,up=10") {
+		t.Errorf("node startup: %s", node)
+	}
+}
+
 func TestUnknownOverrideKey(t *testing.T) {
 	s := baseSpec()
 	s.NodeNetwork = []spec.NodeNetwork{{Node: "node9", IP: "10.0.0.1"}}

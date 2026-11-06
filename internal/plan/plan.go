@@ -292,6 +292,17 @@ func (p *Plan) NodeConfig(n Node, serverToken, agentToken, joinToken string) k3s
 	return c
 }
 
+// StartupFor returns the Proxmox startup spec for a node. Proxmox starts
+// guests by ascending order and shuts them down in reverse, so main
+// (servers) start first and stop last.
+func (p *Plan) StartupFor(n Node) string {
+	st := p.Spec.Startup
+	if n.Role == k3s.RoleServer {
+		return fmt.Sprintf("order=%d,up=%d", st.MainOrder, st.MainDelaySec)
+	}
+	return fmt.Sprintf("order=%d,up=%d", st.NodeOrder, st.NodeDelaySec)
+}
+
 // CreateOpts builds pct create options for a node.
 func (p *Plan) CreateOpts(n Node) pve.CreateOpts {
 	s := p.Spec
@@ -317,6 +328,7 @@ func (p *Plan) CreateOpts(n Node) pve.CreateOpts {
 		Tags:         p.Tags,
 		Description:  fmt.Sprintf("Managed by pk3s. Cluster: %s, role: %s.", s.Name, n.Role),
 		OnBoot:       s.OnBoot,
+		Startup:      p.StartupFor(n),
 		Timezone:     tz,
 		SSHKeyFile:   s.Access.SSHPublicKeyFile,
 	}

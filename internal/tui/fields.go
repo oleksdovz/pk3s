@@ -241,7 +241,17 @@ func buildSections(s *spec.ClusterSpec, inv *pve.Inventory) []section {
 				listField("Extra packages", "Additional apt packages", func(s *spec.ClusterSpec) *[]string { return &s.OS.ExtraPackages }),
 				textField("SSH public key file", "Host path, e.g. /root/.ssh/id_ed25519.pub", func(s *spec.ClusterSpec) *string { return &s.Access.SSHPublicKeyFile }),
 				textField("Timezone", "'host' or IANA name", func(s *spec.ClusterSpec) *string { return &s.Access.Timezone }),
-				toggleField("Start on boot", "", func(s *spec.ClusterSpec) *bool { return &s.OnBoot }),
+			},
+		},
+		{
+			title: "Autostart", prefixes: []string{"startup"},
+			intro: "Proxmox boot order. 'Delay' is how long Proxmox waits after starting\na container before starting the next one. Main (servers) start first;\nshutdown runs in reverse order, so main stops last.",
+			fields: []field{
+				toggleField("Start on boot", "Start containers when the Proxmox host boots", func(s *spec.ClusterSpec) *bool { return &s.OnBoot }),
+				intField("Main start order", "Lower starts earlier and stops later", func(s *spec.ClusterSpec) *int { return &s.Startup.MainOrder }),
+				intField("Delay after main (s)", "Wait before starting the next container", func(s *spec.ClusterSpec) *int { return &s.Startup.MainDelaySec }),
+				intField("Node start order", "Must be greater than main", func(s *spec.ClusterSpec) *int { return &s.Startup.NodeOrder }),
+				intField("Delay after each node (s)", "Staggers agent start-up", func(s *spec.ClusterSpec) *int { return &s.Startup.NodeDelaySec }),
 			},
 		},
 		{

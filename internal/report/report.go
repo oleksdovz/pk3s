@@ -45,6 +45,12 @@ func Plan(p *plan.Plan) string {
 	if len(s.K3s.Disable) > 0 {
 		fmt.Fprintf(&b, "Disabled     %s\n", strings.Join(s.K3s.Disable, ", "))
 	}
+	if s.OnBoot {
+		fmt.Fprintf(&b, "Autostart    start: main (order %d) first, wait %ds, then nodes (order %d) %ds apart; shutdown: nodes first, main last\n",
+			s.Startup.MainOrder, s.Startup.MainDelaySec, s.Startup.NodeOrder, s.Startup.NodeDelaySec)
+	} else {
+		b.WriteString("Autostart    off\n")
+	}
 	fmt.Fprintf(&b, "Tags         %s\n\n", strings.Join(p.Tags, ";"))
 
 	b.WriteString("Containers\n")

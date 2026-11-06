@@ -200,6 +200,21 @@ func Spec(s spec.ClusterSpec, inv *pve.Inventory) Findings {
 		add(Warning, "os.nfs_client", "the kernel does not allow NFS mounts inside unprivileged containers; NFS volumes will fail")
 	}
 
+	// Startup ordering.
+	st := s.Startup
+	if st.MainOrder < 0 || st.NodeOrder < 0 || st.MainDelaySec < 0 || st.NodeDelaySec < 0 {
+		add(Error, "startup", "order and delays must not be negative")
+	}
+	if st.MainDelaySec > 3600 || st.NodeDelaySec > 3600 {
+		add(Error, "startup", "delays above 3600 seconds are not useful")
+	}
+	if s.Agents > 0 && st.NodeOrder <= st.MainOrder {
+		add(Warning, "startup", "node_order should be greater than main_order so main starts first and stops last")
+	}
+	if !s.OnBoot {
+		add(Info, "startup", "onboot is off: the cluster will not start automatically with the Proxmox host")
+	}
+
 	// Access.
 	if tz := s.Access.Timezone; tz != "" && tz != "host" && !strings.Contains(tz, "/") && tz != "UTC" {
 		add(Warning, "access.timezone", "expected 'host' or an IANA zone like Europe/Kyiv")

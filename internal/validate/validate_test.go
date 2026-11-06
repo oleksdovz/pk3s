@@ -91,6 +91,7 @@ func TestErrors(t *testing.T) {
 			s.NodeNetwork = []spec.NodeNetwork{{Node: "node1", DNS: []string{"dns.example"}}}
 		}, validate.Probes{}, "nodes.node1", "DNS"},
 		{"pod CIDR overlaps LAN", func(s *spec.ClusterSpec) { s.K3s.ClusterCIDR = "192.168.0.0/16" }, validate.Probes{}, "k3s", "overlaps"},
+		{"negative delay", func(s *spec.ClusterSpec) { s.Startup.NodeDelaySec = -1 }, validate.Probes{}, "startup", "negative"},
 		{"state exists", func(s *spec.ClusterSpec) {}, validate.Probes{StateExists: func(string) bool { return true }}, "name", "already exists"},
 	}
 	for _, c := range cases {

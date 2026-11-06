@@ -32,6 +32,7 @@ type CreateOpts struct {
 	Tags         []string
 	Description  string
 	OnBoot       bool
+	Startup      string // e.g. "order=1,up=10"
 	Timezone     string
 	SSHKeyFile   string
 }
@@ -72,6 +73,9 @@ func (o CreateOpts) Args() []string {
 	}
 	if o.Description != "" {
 		args = append(args, "--description", o.Description)
+	}
+	if o.Startup != "" {
+		args = append(args, "--startup", o.Startup)
 	}
 	if o.Timezone != "" {
 		args = append(args, "--timezone", o.Timezone)

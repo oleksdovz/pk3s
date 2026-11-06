@@ -17,3 +17,4 @@ All decisions made with the project owner, in order (2026-11-06).
 | 11 | Test host | Proxmox VE 9.2 host `hp` (reachable as `ssh hp`). Read-only inventory is fine; anything that creates containers or loads modules needs explicit approval first. Existing CT 9000 (Proxmox Backup Server, 192.168.0.6) must never be touched. |
 | 12 | Language of communication | Replies in Ukrainian; code, CLI labels and docs in English. |
 | 13 | Node names | Servers are `<prefix>-main1..N`, agents `<prefix>-node1..N`; `node_network` keys are `main1`, `node1`, ... (replaces the earlier `-s1`/`-a1` scheme). Clusters created by builds before this change must not be resumed with newer builds (hostnames would differ). |
+| 14 | Autostart | `onboot: 1` plus Proxmox `startup`: main `order=1,up=10`, nodes `order=2,up=10` (editable on the "Autostart" page / `startup:` in YAML). Proxmox shuts guests down in reverse order, so main stops last. |

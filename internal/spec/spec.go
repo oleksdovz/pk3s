@@ -129,6 +129,17 @@ type OS struct {
 	ExtraPackages []string `yaml:"extra_packages,omitempty"`
 }
 
+// Startup controls Proxmox boot ordering (`startup: order=N,up=S`). Servers
+// (main) start first; agents (nodes) follow. "up" is how long Proxmox waits
+// after starting a container before starting the next one.
+// Proxmox shuts guests down in reverse order, so main containers stop last.
+type Startup struct {
+	MainOrder    int `yaml:"main_order"`
+	MainDelaySec int `yaml:"main_delay_sec"`
+	NodeOrder    int `yaml:"node_order"`
+	NodeDelaySec int `yaml:"node_delay_sec"`
+}
+
 // ClusterSpec is the complete user input.
 type ClusterSpec struct {
 	Name string `yaml:"name"`
@@ -153,6 +164,7 @@ type ClusterSpec struct {
 	Access         Access         `yaml:"access"`
 	OS             OS             `yaml:"os"`
 	OnBoot         bool           `yaml:"onboot"`
+	Startup        Startup        `yaml:"startup"`
 }
 
 // Default returns a spec populated with defaults. Environment-specific
@@ -178,6 +190,7 @@ func Default() ClusterSpec {
 		Access:   Access{Timezone: "host"},
 		OS:       OS{NFSClient: true},
 		OnBoot:   true,
+		Startup:  Startup{MainOrder: 1, MainDelaySec: 10, NodeOrder: 2, NodeDelaySec: 10},
 	}
 }
 

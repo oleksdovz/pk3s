@@ -126,6 +126,12 @@ persistent_data:
   host_path: /data/k3s-storage  # -> /data/k3s-storage/lab/<hostname>
 os:
   nfs_client: true
+onboot: true
+startup:                        # Proxmox boot order; shutdown runs in reverse
+  main_order: 1                 # main (servers) start first and stop last
+  main_delay_sec: 10            # wait after main before starting nodes
+  node_order: 2
+  node_delay_sec: 10            # nodes start 10 s apart
 access:
   ssh_public_key_file: /root/.ssh/id_ed25519.pub
 ```
