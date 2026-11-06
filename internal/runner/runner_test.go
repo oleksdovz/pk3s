@@ -64,3 +64,11 @@ func TestCancelDoesNotHangOnInheritedPipes(t *testing.T) {
 		t.Fatal("Run did not return after cancel")
 	}
 }
+
+func TestHostKubeconfigDoesNotReachCommands(t *testing.T) {
+	t.Setenv("KUBECONFIG", "/var/lib/pk3s/clusters/x/kubeconfig")
+	out, err := Output(context.Background(), Exec{}, Cmd{Name: "sh", Args: []string{"-c", "echo ${KUBECONFIG:-unset}"}})
+	if err != nil || out != "unset" {
+		t.Fatalf("KUBECONFIG leaked: %q %v", out, err)
+	}
+}

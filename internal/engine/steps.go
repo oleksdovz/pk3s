@@ -84,20 +84,24 @@ func (e *Engine) createCT(ctx context.Context, n plan.Node) error {
 }
 
 func (e *Engine) configureCT(ctx context.Context, n plan.Node) error {
-	if err := e.PCT.Stop(ctx, n.CTID); err != nil {
-		return err
-	}
-	if err := e.PCT.AppendConfig(ctx, n.CTID, e.Plan.Profile.Lines()); err != nil {
-		return err
-	}
-	if n.DataDir == "" {
-		return nil
-	}
 	conf, err := e.PCT.ReadConfig(ctx, n.CTID)
 	if err != nil {
 		return err
 	}
-	if strings.Contains(conf, "\nmp0:") || strings.HasPrefix(conf, "mp0:") {
+	missing := pve.MissingLines(conf, e.Plan.Profile.Lines())
+	needMount := n.DataDir != "" && !strings.Contains(conf, "\nmp0:") && !strings.HasPrefix(conf, "mp0:")
+	if len(missing) == 0 && !needMount {
+		return nil // already configured (resumed activity)
+	}
+	if err := e.PCT.Stop(ctx, n.CTID); err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		if err := e.PCT.AppendConfig(ctx, n.CTID, e.Plan.Profile.Lines()); err != nil {
+			return err
+		}
+	}
+	if !needMount {
 		return nil
 	}
 	if err := e.FS.MkdirAll(n.DataDir, 0o711); err != nil {
@@ -115,6 +119,22 @@ func (e *Engine) startCT(ctx context.Context, n plan.Node) error {
 	}
 	return e.PCT.WaitReady(ctx, n.CTID, e.Timeouts.CTReady)
 }
+
+// ShellSetupScript makes k3s usable from any shell in the container:
+// `pct enter` / `pct exec` start shells without /usr/local/bin in PATH and
+// may carry the host's KUBECONFIG, so /etc/profile.d/pk3s.sh fixes both and
+// is also sourced from /root/.bashrc (pct enter starts a non-login shell).
+const ShellSetupScript = `set -eu
+for l in kubectl crictl ctr; do ln -sf k3s /usr/local/bin/$l; done
+mkdir -p -m 0700 /etc/rancher/k3s
+cat > /etc/profile.d/pk3s.sh <<'EOF'
+# Managed by pk3s
+case ":$PATH:" in *:/usr/local/bin:*) ;; *) PATH="/usr/local/sbin:/usr/local/bin:$PATH"; export PATH ;; esac
+if [ -e /etc/rancher/k3s/k3s.yaml ]; then KUBECONFIG=/etc/rancher/k3s/k3s.yaml; export KUBECONFIG; else unset KUBECONFIG; fi
+EOF
+touch /root/.bashrc
+grep -q '/etc/profile.d/pk3s.sh' /root/.bashrc || echo '[ -r /etc/profile.d/pk3s.sh ] && . /etc/profile.d/pk3s.sh  # pk3s' >> /root/.bashrc
+`
 
 // PrepareOpts selects optional packages for node preparation.
 type PrepareOpts struct {
@@ -226,10 +246,7 @@ func (e *Engine) installK3s(ctx context.Context, n plan.Node) error {
 	if err := e.pushBinary(ctx, n); err != nil {
 		return err
 	}
-	if _, err := e.PCT.ExecScript(ctx, n.CTID, `set -eu
-for l in kubectl crictl ctr; do ln -sf k3s /usr/local/bin/$l; done
-mkdir -p -m 0700 /etc/rancher/k3s
-`); err != nil {
+	if _, err := e.PCT.ExecScript(ctx, n.CTID, ShellSetupScript); err != nil {
 		return err
 	}
 

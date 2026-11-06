@@ -162,13 +162,29 @@ func TestStepsAndHostChanges(t *testing.T) {
 	if slices.Contains(ids, "template") {
 		t.Error("template step should be absent when the template exists")
 	}
-	tokens := slices.Index(ids, "k3s-tokens")
-	s2 := slices.Index(ids, "ct-create/lab-main2")
-	if tokens < 0 || s2 < tokens {
-		t.Errorf("tokens must be read before the second node is created: %v", ids)
+	boot := slices.Index(ids, "bootstrap/lab-main1")
+	lastProvision := slices.Index(ids, "provision/lab-node2")
+	firstJoin := slices.Index(ids, "join/lab-main2")
+	if lastProvision < 0 || boot < lastProvision || firstJoin < boot {
+		t.Errorf("order must be provision*, bootstrap, join*: %v", ids)
 	}
-	if ids[0] != "host-modules" || ids[len(ids)-1] != "publish-state" {
+	if ids[0] != "host-modules" || ids[len(ids)-1] != "finalize" {
 		t.Errorf("unexpected order: %v", ids)
+	}
+	// One activity per container for provisioning, run as one parallel group;
+	// servers join one by one, agents in parallel.
+	for _, st := range p.Steps {
+		switch {
+		case st.Kind == plan.StepProvision && st.Group != "provision":
+			t.Errorf("%s should be in the provision group", st.ID)
+		case st.Kind == plan.StepJoin && p.Nodes[st.Node].Role == "server" && st.Group != "":
+			t.Errorf("%s: servers must join one at a time", st.ID)
+		case st.Kind == plan.StepJoin && p.Nodes[st.Node].Role == "agent" && st.Group == "":
+			t.Errorf("%s: agents join in parallel", st.ID)
+		}
+	}
+	if len(p.Steps) != 2+5+1+4+1 {
+		t.Errorf("expected 13 steps for 3 main + 2 node, got %d", len(p.Steps))
 	}
 	if !slices.Contains(p.MissingModules, "vxlan") || !slices.Contains(p.MissingModules, "overlay") {
 		t.Errorf("missing modules on fixture host: %v", p.MissingModules)

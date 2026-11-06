@@ -44,7 +44,7 @@ func TestAddServersKeepsExistingIDs(t *testing.T) {
 	// New servers join one by one after nothing else changes.
 	var created []string
 	for _, st := range p.Steps {
-		if st.Kind == plan.StepCreateCT {
+		if st.Kind == plan.StepProvision {
 			created = append(created, p.Nodes[st.Node].Hostname)
 		}
 	}

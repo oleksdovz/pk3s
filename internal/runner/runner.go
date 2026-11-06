@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -77,6 +78,26 @@ type Exec struct {
 	Log func(line string)
 }
 
+// leakyEnv are host variables that must not reach containers.
+var leakyEnv = []string{"KUBECONFIG=", "KUBECTL_", "K3S_"}
+
+// CleanEnv drops host variables that would change tools inside containers.
+func CleanEnv(env []string) []string {
+	out := env[:0:0]
+	for _, kv := range env {
+		drop := false
+		for _, p := range leakyEnv {
+			if strings.HasPrefix(kv, p) {
+				drop = true
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 // LogLine formats the activity-log entry for a finished command.
 func LogLine(cmd Cmd, res Result, err error, d time.Duration) string {
 	line := "$ " + cmd.String()
@@ -110,6 +131,9 @@ func (e Exec) Run(ctx context.Context, cmd Cmd) (Result, error) {
 	if cmd.Stdin != nil {
 		c.Stdin = bytes.NewReader(cmd.Stdin)
 	}
+	// pct exec / lxc-attach pass the caller's environment into the
+	// container; a host KUBECONFIG would make kubectl inside it fail.
+	c.Env = CleanEnv(os.Environ())
 	// On cancellation kill the whole process group (pct -> lxc-attach ->
 	// shell) and stop waiting for pipes that a surviving child may still
 	// hold open; otherwise an aborted step hangs forever.

@@ -263,6 +263,7 @@ func (f fakeFetch) EnsureBinary(_ context.Context, _, version, _ string) (k3s.Ar
 // memFS records host writes outside the state dir instead of touching /etc.
 type memFS struct {
 	engine.OSFS
+	mu      sync.Mutex
 	root    string
 	written map[string]string
 }
@@ -271,6 +272,8 @@ func (m *memFS) WriteFile(p string, d []byte, perm os.FileMode) error {
 	if strings.HasPrefix(p, m.root) {
 		return m.OSFS.WriteFile(p, d, perm)
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.written[p] = string(d)
 	return nil
 }
@@ -279,6 +282,8 @@ func (m *memFS) MkdirAll(p string, perm os.FileMode) error {
 	if strings.HasPrefix(p, m.root) {
 		return os.MkdirAll(p, perm)
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.written[p+"/"] = ""
 	return nil
 }
@@ -425,11 +430,11 @@ func TestResumeAfterFailure(t *testing.T) {
 	h.sim.failOnce["pct push 5003"] = true
 	err := h.eng.Run(context.Background())
 	var se *engine.StepError
-	if !errors.As(err, &se) || se.Step.ID != "k3s-install/lab-node1" {
-		t.Fatalf("expected failure at k3s-install/lab-node1, got %v", err)
+	if !errors.As(err, &se) || se.Step.ID != "join/lab-node1" {
+		t.Fatalf("expected failure at join/lab-node1, got %v", err)
 	}
 	st, _ := h.store.Load()
-	if st.Steps["k3s-install/lab-node1"].Status != state.StatusFailed || st.Steps["ct-create/lab-main1"].Status != state.StatusDone {
+	if st.Steps["join/lab-node1"].Status != state.StatusFailed || st.Steps["provision/lab-main1"].Status != state.StatusDone {
 		t.Fatalf("state not recorded: %+v", st.Steps)
 	}
 	creates := countPrefix(h.sim.calls, "pct create")
@@ -440,8 +445,13 @@ func TestResumeAfterFailure(t *testing.T) {
 	if err := h.eng.Run(context.Background()); err != nil {
 		t.Fatalf("resume failed: %v", err)
 	}
-	if got := countPrefix(h.sim.calls, "pct create"); got != creates+1 {
-		t.Errorf("resume should only create the remaining agent: %d -> %d", creates, got)
+	// All containers were provisioned (in parallel) before the failure, so
+	// resume creates nothing and retries only the failed join.
+	if got := countPrefix(h.sim.calls, "pct create"); got != creates {
+		t.Errorf("resume must not create containers again: %d -> %d", creates, got)
+	}
+	if !h.sim.cts[5003].k3s {
+		t.Error("lab-node1 should have joined on resume")
 	}
 	skipped := 0
 	for _, ev := range h.events {
@@ -462,23 +472,33 @@ func TestRefusesForeignContainer(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "refusing to touch it") {
 		t.Fatalf("expected refusal, got %v", err)
 	}
-	if countPrefix(h.sim.calls, "pct stop") > 0 || countPrefix(h.sim.calls, "tee") > 0 {
+	if countPrefix(h.sim.calls, "pct stop 5000") > 0 || countPrefix(h.sim.calls, "tee -a /etc/pve/lxc/5000.conf") > 0 ||
+		countPrefix(h.sim.calls, "pct start 5000") > 0 || countPrefix(h.sim.calls, "pct exec 5000") > 0 {
 		t.Error("foreign container must not be modified")
+	}
+	if strings.Contains(h.sim.cts[5000].conf, "pk3s") {
+		t.Error("foreign container config changed")
 	}
 }
 
 func TestStopBetweenSteps(t *testing.T) {
 	h := newHarness(t, nil)
 	h.eng.Notify = func(ev engine.Event) {
-		if ev.Kind == engine.EventStepDone && ev.StepID == "ct-create/lab-main1" {
+		if ev.Kind == engine.EventStepDone && ev.StepID == "provision/lab-main1" {
 			h.eng.RequestStop()
 		}
 	}
 	if err := h.eng.Run(context.Background()); !errors.Is(err, engine.ErrStopped) {
 		t.Fatalf("expected ErrStopped, got %v", err)
 	}
-	if len(h.sim.cts) != 1 {
-		t.Errorf("only one CT should exist after stop, got %d", len(h.sim.cts))
+	// The running provision group finishes; nothing after it starts.
+	if len(h.sim.cts) != 5 {
+		t.Errorf("all 5 CTs of the provision group should exist, got %d", len(h.sim.cts))
+	}
+	for id, ct := range h.sim.cts {
+		if ct.k3s {
+			t.Errorf("CT %d: k3s must not be installed after stop", id)
+		}
 	}
 }
 

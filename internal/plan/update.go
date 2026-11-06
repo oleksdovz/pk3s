@@ -150,15 +150,10 @@ func BuildUpdate(in UpdateInput, inv *pve.Inventory) (*Plan, error) {
 		p.Changes = append(p.Changes, msg)
 	}
 
-	// 4. New nodes, servers first, one at a time.
+	// 4. New nodes: provision in parallel, join servers one at a time,
+	// agents in parallel.
+	p.Steps = append(p.Steps, nodeSteps(p, newNodes, in.OpID+"/")...)
 	for _, n := range newNodes {
-		label := fmt.Sprintf("%s (CT %d)", n.Hostname, n.CTID)
-		add(StepCreateCT, n.Index, n.Hostname, "Create "+label)
-		add(StepConfigureCT, n.Index, n.Hostname, "Apply LXC profile to "+label)
-		add(StepStartCT, n.Index, n.Hostname, "Start "+label)
-		add(StepPrepareNode, n.Index, n.Hostname, "Prepare OS in "+label)
-		add(StepInstallK3s, n.Index, n.Hostname, fmt.Sprintf("Install k3s %s on %s", n.Role, label))
-		add(StepWaitNode, n.Index, n.Hostname, "Wait for k3s on "+label)
 		p.Changes = append(p.Changes, fmt.Sprintf("add %s %s (CT %d, %s)", n.Role, n.Hostname, n.CTID, n.IP))
 		if n.DataDir != "" {
 			p.HostChanges = append(p.HostChanges, HostChange{
@@ -169,8 +164,7 @@ func BuildUpdate(in UpdateInput, inv *pve.Inventory) (*Plan, error) {
 	}
 
 	if len(p.Changes) > 0 {
-		add(StepClusterReady, -1, "", "Wait for all nodes Ready")
-		add(StepPublishState, -1, "", "Record cluster state in ConfigMap kube-system/pk3s-state")
+		add(StepFinalize, -1, "", "Finalize: all nodes Ready, kubeconfig, state ConfigMap")
 	}
 	return p, nil
 }

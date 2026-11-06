@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -108,6 +109,12 @@ type Engine struct {
 
 	artifact *k3s.Artifact
 	stop     atomic.Bool
+	// mu guards State, Store writes and the artifact cache: steps of a
+	// parallel group run concurrently.
+	mu    sync.Mutex
+	artMu sync.Mutex
+	// emitMu serializes Notify calls from parallel steps.
+	emitMu sync.Mutex
 }
 
 // RequestStop asks the engine to stop after the current step.
@@ -118,6 +125,9 @@ func (e *Engine) emit(ev Event) {
 		return
 	}
 	ev.Message = e.redact(ev.Message)
+	// Steps of a parallel group emit concurrently; deliver one at a time.
+	e.emitMu.Lock()
+	defer e.emitMu.Unlock()
 	e.Notify(ev)
 }
 
@@ -152,50 +162,101 @@ func (e *Engine) Run(ctx context.Context) error {
 		}
 	}
 	steps := e.Plan.Steps
-	for i, st := range steps {
-		ev := Event{StepID: st.ID, Title: st.Title, Index: i, Total: len(steps)}
-		if e.State.Steps[st.ID].Status == state.StatusDone && st.Kind != plan.StepArtifact {
-			ev.Kind = EventStepSkipped
-			e.emit(ev)
-			continue
+	for i := 0; i < len(steps); {
+		// A batch is one step, or consecutive steps of the same group.
+		j := i + 1
+		if g := steps[i].Group; g != "" {
+			for j < len(steps) && steps[j].Group == g {
+				j++
+			}
 		}
-		if e.stop.Load() {
-			return ErrStopped
-		}
-		if err := ctx.Err(); err != nil {
+		if err := e.runBatch(ctx, steps, i, j); err != nil {
 			return err
 		}
-		ev.Kind = EventStepStart
-		e.emit(ev)
-		e.State.Steps[st.ID] = state.StepState{Status: state.StatusRunning, Started: time.Now().UTC()}
-		if err := e.Store.Save(e.State); err != nil {
-			return fmt.Errorf("save state: %w", err)
-		}
-
-		err := e.runStep(ctx, st)
-
-		ss := e.State.Steps[st.ID]
-		ss.Finished = time.Now().UTC()
-		if err != nil {
-			ss.Status = state.StatusFailed
-			ss.Error = e.redact(err.Error())
-			e.State.Steps[st.ID] = ss
-			_ = e.Store.Save(e.State)
-			ev.Kind = EventStepFailed
-			ev.Message = err.Error()
-			e.emit(ev)
-			return &StepError{Step: st, Err: errors.New(e.redact(err.Error()))}
-		}
-		ss.Status = state.StatusDone
-		ss.Error = ""
-		e.State.Steps[st.ID] = ss
-		if err := e.Store.Save(e.State); err != nil {
-			return fmt.Errorf("save state: %w", err)
-		}
-		ev.Kind = EventStepDone
-		e.emit(ev)
+		i = j
 	}
 	e.emit(Event{Kind: EventFinished, Total: len(steps), Index: len(steps)})
+	return nil
+}
+
+// runBatch runs steps[from:to] (in parallel when there is more than one),
+// waits for all of them, and returns the first failure.
+func (e *Engine) runBatch(ctx context.Context, steps []plan.Step, from, to int) error {
+	var todo []int
+	for i := from; i < to; i++ {
+		st := steps[i]
+		if e.stepStatus(st.ID) == state.StatusDone && st.Kind != plan.StepArtifact {
+			e.emit(Event{Kind: EventStepSkipped, StepID: st.ID, Title: st.Title, Index: i, Total: len(steps)})
+			continue
+		}
+		todo = append(todo, i)
+	}
+	if len(todo) == 0 {
+		return nil
+	}
+	if e.stop.Load() {
+		return ErrStopped
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	errs := make([]error, len(todo))
+	sem := make(chan struct{}, plan.MaxParallel)
+	var wg sync.WaitGroup
+	for k, i := range todo {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(k, i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			errs[k] = e.runOne(ctx, steps[i], i, len(steps))
+		}(k, i)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Engine) stepStatus(id string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.State.Steps[id].Status
+}
+
+// setStep records a step state and saves state.json.
+func (e *Engine) setStep(id string, ss state.StepState) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.State.Steps[id] = ss
+	return e.Store.Save(e.State)
+}
+
+func (e *Engine) runOne(ctx context.Context, st plan.Step, i, total int) error {
+	ev := Event{StepID: st.ID, Title: st.Title, Index: i, Total: total}
+	started := time.Now().UTC()
+	ev.Kind = EventStepStart
+	e.emit(ev)
+	if err := e.setStep(st.ID, state.StepState{Status: state.StatusRunning, Started: started}); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+	err := e.runStep(ctx, st)
+	ss := state.StepState{Started: started, Finished: time.Now().UTC(), Status: state.StatusDone}
+	if err != nil {
+		ss.Status, ss.Error = state.StatusFailed, e.redact(err.Error())
+		_ = e.setStep(st.ID, ss)
+		ev.Kind, ev.Message = EventStepFailed, err.Error()
+		e.emit(ev)
+		return &StepError{Step: st, Err: errors.New(e.redact(err.Error()))}
+	}
+	if err := e.setStep(st.ID, ss); err != nil {
+		return fmt.Errorf("save state: %w", err)
+	}
+	ev.Kind = EventStepDone
+	e.emit(ev)
 	return nil
 }
 
@@ -247,6 +308,14 @@ func (e *Engine) runStep(ctx context.Context, st plan.Step) error {
 		return e.upgradeNode(ctx, node)
 	case plan.StepPublishState:
 		return e.publishState(ctx)
+	case plan.StepProvision:
+		return e.provision(ctx, node)
+	case plan.StepBootstrap:
+		return e.bootstrapServer(ctx, node)
+	case plan.StepJoin:
+		return e.join(ctx, node)
+	case plan.StepFinalize:
+		return e.finalize(ctx)
 	case plan.StepRemoveNode:
 		return e.removeNode(ctx, e.Plan.Removed[st.Node])
 	default:
@@ -257,6 +326,8 @@ func (e *Engine) runStep(ctx context.Context, st plan.Step) error {
 func (e *Engine) bootstrap() plan.Node { return e.Plan.Nodes[0] }
 
 func (e *Engine) addResource(kind, id string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.State.AddResource(state.Resource{Kind: kind, ID: id, Node: e.Plan.Spec.Node})
 	return e.Store.Save(e.State)
 }
@@ -272,6 +343,8 @@ func (e *Engine) tmpFile(name string, data []byte) (string, func(), error) {
 }
 
 func (e *Engine) ensureArtifact(ctx context.Context) (k3s.Artifact, error) {
+	e.artMu.Lock()
+	defer e.artMu.Unlock()
 	if e.artifact != nil {
 		return *e.artifact, nil
 	}

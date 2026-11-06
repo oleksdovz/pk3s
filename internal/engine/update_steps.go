@@ -169,12 +169,16 @@ func (e *Engine) removeNode(ctx context.Context, n plan.Node) error {
 			return err
 		}
 	}
+	e.mu.Lock()
 	e.State.RemoveResource(state.KindContainer, strconv.Itoa(n.CTID))
+	e.mu.Unlock()
 	if n.DataDir != "" {
 		e.logf("%s removed; data directory %s kept on the host", n.Hostname, n.DataDir)
 	} else {
 		e.logf("%s removed", n.Hostname)
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return e.Store.Save(e.State)
 }
 

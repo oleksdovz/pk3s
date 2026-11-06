@@ -153,11 +153,14 @@ func Summary(p *plan.Plan, kubeconfig string) string {
 	tw.Flush()
 	fmt.Fprintf(&b, `
 Access
+  on this host:           pct exec %[3]d -- kubectl get nodes
+  shell on main1:         pct enter %[3]d     (kubectl works inside)
   kubeconfig (mode 0600): %[1]s
-  export KUBECONFIG=%[1]s && kubectl get nodes
-  copy to a workstation:  scp root@<proxmox-host>:%[1]s ~/.kube/%[2]s.yaml
-  shell on a node:        pct enter %[3]d
+  on a workstation:       scp root@<proxmox-host>:%[1]s ~/.kube/%[2]s.yaml
+                          KUBECONFIG=~/.kube/%[2]s.yaml kubectl get nodes
   API endpoint:           %[4]s
+  (Do not export KUBECONFIG on the Proxmox host: pct enter would carry it
+  into the containers.)
 
 Secrets (join tokens) are stored in the same directory as secrets.json (mode 0600).
 `, kubeconfig, p.Spec.Name, p.Nodes[0].CTID, p.ServerURL())

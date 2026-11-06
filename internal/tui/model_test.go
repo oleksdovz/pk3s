@@ -400,3 +400,45 @@ func TestCtrlLRedraws(t *testing.T) {
 		t.Fatal("Ctrl+L should return redraw commands")
 	}
 }
+
+func TestRunningScreenGroupsByContainer(t *testing.T) {
+	m, _ := newModel(t)
+	m.plan, _ = planFor(t) // 1 main + 2 node
+	m.screen = scrRunning
+	m = send(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	set := func(id, st string) { m.stepStatus[id] = st }
+	set("host-modules", "done")
+	set("k3s-artifact", "done")
+	set("provision/test-lb1-main1", "done")
+	set("provision/test-lb1-node1", "done")
+	set("provision/test-lb1-node2", "running")
+	set("bootstrap/test-lb1-main1", "running")
+
+	rows := m.progressRows()
+	var containers []progressRow
+	for _, r := range rows {
+		if r.section == "Containers" {
+			containers = append(containers, r)
+		}
+	}
+	if len(containers) != 3 {
+		t.Fatalf("expected one row per container, got %d: %+v", len(containers), rows)
+	}
+	want := map[string][2]string{
+		"test-lb1-main1 (CT 5000)": {"running", "bootstrapping k3s server"},
+		"test-lb1-node1 (CT 5001)": {"waiting", "provisioned, waiting for the next phase"},
+		"test-lb1-node2 (CT 5002)": {"running", "provisioning: create, start, OS packages"},
+	}
+	for _, r := range containers {
+		w, ok := want[r.label]
+		if !ok || r.icon != w[0] || r.detail != w[1] {
+			t.Errorf("%s: got %s / %q, want %v", r.label, r.icon, r.detail, w)
+		}
+	}
+	view := m.View()
+	for _, s := range []string{"Host", "Containers", "Cluster", "Progress 4/9", "Finalize"} {
+		if !strings.Contains(view, s) {
+			t.Errorf("view missing %q", s)
+		}
+	}
+}

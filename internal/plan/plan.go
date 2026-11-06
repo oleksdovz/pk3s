@@ -63,7 +63,16 @@ const (
 	StepRemoveNode  StepKind = "node-remove"
 	// StepPublishState writes the cluster state ConfigMap (create and update).
 	StepPublishState StepKind = "publish-state"
+
+	// Merged activities (one entry per container in the step list).
+	StepProvision StepKind = "provision" // create, profile, start, OS packages
+	StepBootstrap StepKind = "bootstrap" // k3s on main1, readiness, join tokens
+	StepJoin      StepKind = "join"      // k3s on another node, readiness
+	StepFinalize  StepKind = "finalize"  // all Ready, kubeconfig, state ConfigMap
 )
+
+// MaxParallel bounds steps of one parallel group running at once.
+const MaxParallel = 4
 
 // Step is one unit of work; ID is stable across runs and used for resume.
 type Step struct {
@@ -73,6 +82,9 @@ type Step struct {
 	// Node indexes Plan.Nodes (Plan.Removed for StepRemoveNode); -1 if
 	// the step is not node-specific.
 	Node int
+	// Group: consecutive steps with the same non-empty group run in
+	// parallel (at most MaxParallel at a time).
+	Group string
 }
 
 // Plan is the full deployment plan.
@@ -289,35 +301,51 @@ func orNone(m []string) string {
 
 func buildSteps(p *Plan, inv *pve.Inventory) []Step {
 	var steps []Step
-	add := func(kind StepKind, node int, title string) {
+	add := func(kind StepKind, node int, group, title string) {
 		id := string(kind)
 		if node >= 0 {
 			id = fmt.Sprintf("%s/%s", kind, p.Nodes[node].Hostname)
 		}
-		steps = append(steps, Step{ID: id, Kind: kind, Title: title, Node: node})
+		steps = append(steps, Step{ID: id, Kind: kind, Title: title, Node: node, Group: group})
 	}
 	if p.Spec.Host.LoadKernelModules {
-		add(StepHostModules, -1, "Load host kernel modules")
+		add(StepHostModules, -1, "", "Load host kernel modules")
 	}
 	if !inv.HasTemplate(p.Spec.Template.VolID()) {
-		add(StepTemplate, -1, "Download template "+p.Spec.Template.Name)
+		add(StepTemplate, -1, "", "Download template "+p.Spec.Template.Name)
 	}
-	add(StepArtifact, -1, "Download and verify k3s "+p.K3sVersion)
-	for _, n := range p.Nodes {
-		label := fmt.Sprintf("%s (CT %d)", n.Hostname, n.CTID)
-		add(StepCreateCT, n.Index, "Create "+label)
-		add(StepConfigureCT, n.Index, "Apply LXC profile to "+label)
-		add(StepStartCT, n.Index, "Start "+label)
-		add(StepPrepareNode, n.Index, "Prepare OS in "+label)
-		add(StepInstallK3s, n.Index, fmt.Sprintf("Install k3s %s on %s", n.Role, label))
-		add(StepWaitNode, n.Index, "Wait for k3s on "+label)
+	add(StepArtifact, -1, "", "Download and verify k3s "+p.K3sVersion)
+	steps = append(steps, nodeSteps(p, p.Nodes, "")...)
+	add(StepFinalize, -1, "", "Finalize: all nodes Ready, kubeconfig, state ConfigMap")
+	return steps
+}
+
+// nodeSteps provisions nodes in parallel, bootstraps main1 if it is among
+// them, joins servers one at a time (etcd) and agents in parallel.
+// prefix scopes step IDs (update operations).
+func nodeSteps(p *Plan, nodes []Node, prefix string) []Step {
+	var steps []Step
+	add := func(kind StepKind, n Node, group, title string) {
+		steps = append(steps, Step{ID: prefix + string(kind) + "/" + n.Hostname, Kind: kind, Title: title, Node: n.Index, Group: group})
+	}
+	for _, n := range nodes {
+		add(StepProvision, n, "provision", fmt.Sprintf("Provision %s (CT %d): create, start, OS packages", n.Hostname, n.CTID))
+	}
+	for _, n := range nodes {
 		if n.Bootstrap {
-			add(StepFetchTokens, -1, "Read join tokens from "+n.Hostname)
+			add(StepBootstrap, n, "", fmt.Sprintf("Bootstrap k3s server on %s (CT %d)", n.Hostname, n.CTID))
 		}
 	}
-	add(StepClusterReady, -1, "Wait for all nodes Ready")
-	add(StepKubeconfig, -1, "Export kubeconfig")
-	add(StepPublishState, -1, "Record cluster state in ConfigMap kube-system/pk3s-state")
+	for _, n := range nodes {
+		if n.Role == k3s.RoleServer && !n.Bootstrap {
+			add(StepJoin, n, "", fmt.Sprintf("Join server %s (CT %d)", n.Hostname, n.CTID))
+		}
+	}
+	for _, n := range nodes {
+		if n.Role == k3s.RoleAgent {
+			add(StepJoin, n, "join-agents", fmt.Sprintf("Join agent %s (CT %d)", n.Hostname, n.CTID))
+		}
+	}
 	return steps
 }
 

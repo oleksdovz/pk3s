@@ -10,7 +10,6 @@ import (
 	"github.com/oleksdovz/pk3s/internal/engine"
 	"github.com/oleksdovz/pk3s/internal/plan"
 	"github.com/oleksdovz/pk3s/internal/report"
-	"github.com/oleksdovz/pk3s/internal/state"
 	"github.com/oleksdovz/pk3s/internal/validate"
 )
 
@@ -374,44 +373,43 @@ func wrap(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) stepIcon(id string) string {
-	switch m.stepStatus[id] {
-	case state.StatusDone:
-		return stOK.Render("✓")
-	case "skipped":
-		return stDim.Render("·")
-	case state.StatusFailed:
-		return stErr.Render("✗")
-	case state.StatusRunning:
-		return stTitle.Render(m.spin.View())
-	default:
-		return " "
-	}
-}
-
 func (m Model) viewRunning(w int) string {
-	steps := m.plan.Steps
-	cur := 0
-	for i, s := range steps {
-		if s.ID == m.current {
-			cur = i
+	rowsAll := m.progressRows()
+	height := max(1, m.bodyHeight()-3) // panel border + title
+	leftW := min(62, max(40, w/2))
+	var lines []string
+	section := ""
+	for _, r := range rowsAll {
+		if r.section != section {
+			section = r.section
+			lines = append(lines, stTitle.Render(section))
+		}
+		line := m.renderIcon(r.icon) + " " + truncate(r.label, leftW-6)
+		if r.detail != "" {
+			line += "\n    " + stDim.Render(truncate(r.detail, leftW-8))
+		}
+		lines = append(lines, line)
+	}
+	left := strings.Join(lines, "\n")
+	if n := strings.Count(left, "\n") + 1; n > height {
+		// Too many containers for the window: keep the newest part visible.
+		parts := strings.Split(left, "\n")
+		left = strings.Join(parts[n-height:], "\n")
+	}
+	done, total := 0, len(m.plan.Steps)
+	for _, st := range m.plan.Steps {
+		if m.iconFor(st.ID) == "done" {
+			done++
 		}
 	}
-	rows := max(1, m.bodyHeight()-3) // panel border + title
-	start, end := window(len(steps), cur, rows)
-	var left strings.Builder
-	left.WriteString(stTitle.Render(fmt.Sprintf("Steps (%d)", len(steps))) + "\n")
-	for i := start; i < end; i++ {
-		left.WriteString(m.stepIcon(steps[i].ID) + " " + truncate(steps[i].Title, 40) + "\n")
-	}
-	leftBox := stPanel.Width(46).Render(left.String())
+	leftBox := stPanel.Width(leftW).Render(stTitle.Render(fmt.Sprintf("Progress %d/%d", done, total)) + "\n" + left)
 
-	rw := max(30, w-lipgloss.Width(leftBox)-4)
+	rw := max(20, w-lipgloss.Width(leftBox)-4)
 	var right strings.Builder
 	right.WriteString(stTitle.Render("Log") + "\n")
 	logs := m.logs
-	if len(logs) > rows {
-		logs = logs[len(logs)-rows:]
+	if len(logs) > height {
+		logs = logs[len(logs)-height:]
 	}
 	for _, l := range logs {
 		right.WriteString(truncate(l, rw-2) + "\n")
