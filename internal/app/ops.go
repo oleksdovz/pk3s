@@ -34,6 +34,7 @@ type StatusReport struct {
 	StepOrder  []plan.Step
 	Kubeconfig string
 	K8sError   string
+	Pending    *state.Operation
 }
 
 // Status reports the current state of a cluster managed by pk3s.
@@ -61,7 +62,7 @@ func (a *App) Status(ctx context.Context, name string) (*StatusReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	rep := &StatusReport{Spec: s, K3sVersion: st.K3sVersion, Steps: st.Steps, StepOrder: p.Steps}
+	rep := &StatusReport{Spec: s, K3sVersion: st.K3sVersion, Steps: st.Steps, StepOrder: p.Steps, Pending: st.Pending}
 	if _, err := os.Stat(store.Path("kubeconfig")); err == nil {
 		rep.Kubeconfig = store.Path("kubeconfig")
 	}

@@ -47,7 +47,24 @@ func TestStatusCountsLegacySteps(t *testing.T) {
 			"kubeconfig":          {Status: state.StatusDone},
 		},
 	}
-	if out := Status(r); !strings.Contains(out, "Deployment steps: 3/3 done") {
+	if out := Status(r); !strings.Contains(out, "All operations completed.") {
+		t.Fatal(out)
+	}
+}
+
+func TestStatusShowsPendingAndFailures(t *testing.T) {
+	r := &app.StatusReport{
+		Spec:      spec.ClusterSpec{Name: "lab"},
+		StepOrder: []plan.Step{{ID: "finalize"}},
+		Steps: map[string]state.StepState{
+			"finalize":                 {Status: state.StatusDone},
+			"op-1/provision/lab-node3": {Status: state.StatusDone},
+			"op-1/join/lab-node3":      {Status: state.StatusFailed, Error: "boom"},
+		},
+		Pending: &state.Operation{ID: "op-1", FromVersion: "v1", ToVersion: "v1"},
+	}
+	out := Status(r)
+	if !strings.Contains(out, "Update op-1 in progress") || !strings.Contains(out, "1 step(s) done, 2 recorded") || !strings.Contains(out, "Last failure: op-1/join/lab-node3: boom") {
 		t.Fatal(out)
 	}
 }

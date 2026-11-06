@@ -122,46 +122,45 @@ func Status(r *app.StatusReport) string {
 	if r.K8sError != "" {
 		fmt.Fprintf(&b, "\n%s\n", r.K8sError)
 	}
-	done, failed, matched := 0, "", 0
-	for _, st := range r.StepOrder {
-		ss, ok := r.Steps[st.ID]
-		if ok {
-			matched++
-		}
+	var failed, running []string
+	for id, ss := range r.Steps {
 		switch ss.Status {
-		case state.StatusDone:
-			done++
 		case state.StatusFailed:
-			failed = st.Title + ": " + ss.Error
+			failed = append(failed, id+": "+ss.Error)
+		case state.StatusRunning:
+			running = append(running, id)
 		}
 	}
-	total := len(r.StepOrder)
-	inPlan := map[string]bool{}
-	for _, st := range r.StepOrder {
-		inPlan[st.ID] = true
-	}
-	legacy := false
-	for id := range r.Steps {
-		if !inPlan[id] && !strings.HasPrefix(id, "op-") {
-			legacy = true
-		}
-	}
-	if legacy || (matched == 0 && len(r.Steps) > 0) {
-		// Deployed by an older pk3s with different step names: count the
-		// steps recorded in the state instead.
-		done, total = 0, len(r.Steps)
+	sort.Strings(failed)
+	switch {
+	case r.Pending != nil:
+		done, total := 0, 0
 		for id, ss := range r.Steps {
-			switch ss.Status {
-			case state.StatusDone:
-				done++
-			case state.StatusFailed:
-				failed = id + ": " + ss.Error
+			if strings.HasPrefix(id, r.Pending.ID+"/") {
+				total++
+				if ss.Status == state.StatusDone {
+					done++
+				}
 			}
 		}
+		fmt.Fprintf(&b, "\nUpdate %s in progress (k3s %s -> %s): %d step(s) done, %d recorded.\nContinue with: pk3s resume %s\n",
+			r.Pending.ID, r.Pending.FromVersion, r.Pending.ToVersion, done, total, r.Spec.Name)
+	case len(failed) > 0 || len(running) > 0:
+		done := 0
+		for _, st := range r.StepOrder {
+			if r.Steps[st.ID].Status == state.StatusDone {
+				done++
+			}
+		}
+		fmt.Fprintf(&b, "\nDeployment incomplete: %d/%d steps done. Continue with: pk3s resume %s\n", done, len(r.StepOrder), r.Spec.Name)
+		if len(running) > 0 {
+			fmt.Fprintf(&b, "Interrupted during: %s\n", strings.Join(running, ", "))
+		}
+	default:
+		b.WriteString("\nAll operations completed.\n")
 	}
-	fmt.Fprintf(&b, "\nDeployment steps: %d/%d done\n", done, total)
-	if failed != "" {
-		fmt.Fprintf(&b, "Last failure: %s\n", failed)
+	if len(failed) > 0 {
+		fmt.Fprintf(&b, "Last failure: %s\n", failed[len(failed)-1])
 	}
 	if r.Kubeconfig != "" {
 		fmt.Fprintf(&b, "Kubeconfig: %s\n", r.Kubeconfig)
