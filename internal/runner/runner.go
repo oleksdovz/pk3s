@@ -110,6 +110,12 @@ func (e Exec) Run(ctx context.Context, cmd Cmd) (Result, error) {
 	if cmd.Stdin != nil {
 		c.Stdin = bytes.NewReader(cmd.Stdin)
 	}
+	// On cancellation kill the whole process group (pct -> lxc-attach ->
+	// shell) and stop waiting for pipes that a surviving child may still
+	// hold open; otherwise an aborted step hangs forever.
+	setProcessGroup(c)
+	c.Cancel = func() error { return killProcessGroup(c) }
+	c.WaitDelay = 5 * time.Second
 	start := time.Now()
 	err := c.Run()
 	res := Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}

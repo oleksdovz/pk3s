@@ -20,7 +20,7 @@ const (
 // Default values. CPU/RAM are editable starting points, not sizing advice.
 const (
 	DefaultCores       = 2
-	DefaultMemoryMiB   = 2048
+	DefaultMemoryMiB   = 4096
 	DefaultDiskGiB     = 30
 	DefaultCTIDStart   = 5000
 	DefaultChannel     = "stable"

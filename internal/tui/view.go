@@ -82,7 +82,7 @@ func (m Model) View() string {
 		hint = "Enter confirm  Esc back"
 	case scrRunning:
 		body = m.viewRunning(w)
-		hint = "F10 / Ctrl+C stop after the current step  Ctrl+L redraw"
+		hint = "F10 / Ctrl+C: stop after the current step; press again to abort a hanging step  Ctrl+L redraw"
 	case scrDone:
 		body = m.viewDone(w)
 		hint = "Enter main menu"

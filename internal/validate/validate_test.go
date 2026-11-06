@@ -110,6 +110,7 @@ func TestWarnings(t *testing.T) {
 	s := good()
 	s.Server.MemoryMiB = 2048
 	s.Security.Fuse = true
+	s.Network.VLAN = 30 // tagged: subnets are not tied to the bridge address
 	s.NodeNetwork = []spec.NodeNetwork{{Node: "node2", IP: "10.20.0.5", Prefix: 24, Gateway: "10.20.0.1"}}
 	fs := all(t, s, validate.Probes{})
 	if fs.HasErrors() {
@@ -134,5 +135,18 @@ func TestUnprivilegedNFSWarning(t *testing.T) {
 	fs := validate.Spec(s, testutil.HPInventory(t))
 	if len(fs.ForField("os.nfs_client")) == 0 || len(fs.ForField("security.profile")) == 0 {
 		t.Fatalf("expected experimental + NFS warnings: %v", fs)
+	}
+}
+
+func TestBridgeSubnetMismatch(t *testing.T) {
+	s := good()
+	s.Network.Bridge = "vmbr100" // 192.168.100.1/24 on the fixture host
+	fs := all(t, s, validate.Probes{})
+	if !hasError(fs, "nodes.main1", "not in the subnet of bridge vmbr100") {
+		t.Fatalf("expected bridge/subnet error: %v", fs)
+	}
+	s.Network.VLAN = 30 // a tagged VLAN may use any subnet
+	if hasError(all(t, s, validate.Probes{}), "nodes.main1", "subnet of bridge") {
+		t.Fatal("VLAN-tagged nodes must not be checked against the bridge subnet")
 	}
 }

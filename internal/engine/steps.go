@@ -141,8 +141,17 @@ func PrepareScript(o PrepareOpts) string {
 	pkgs := strings.Join(o.Packages(), " ")
 	return `set -eu
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y -q --no-install-recommends ` + pkgs + `
+# Fail fast when the container has no working network instead of letting
+# apt wait forever (wrong bridge/gateway/DNS).
+mirror=$(grep -ohE 'https?://[^/ ]+' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null | head -n1 | sed 's#.*://##')
+mirror=${mirror:-deb.debian.org}
+if ! timeout 15 getent ahosts "$mirror" >/dev/null 2>&1; then
+  echo "ERROR: cannot resolve $mirror from the container: check bridge, IP/prefix, gateway $(ip route | awk '/^default/{print $3; exit}') and DNS $(awk '/^nameserver/{print $2}' /etc/resolv.conf | tr '\n' ' ')" >&2
+  exit 1
+fi
+APT="timeout 1200 apt-get -q -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3"
+$APT update
+$APT install -y --no-install-recommends ` + pkgs + `
 mkdir -p /etc/sysctl.d
 cat > /etc/sysctl.d/90-pk3s.conf <<'EOF'
 # Managed by pk3s

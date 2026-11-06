@@ -208,7 +208,7 @@ func (m Model) requestStop() (tea.Model, tea.Cmd) {
 	if !m.stopAsked {
 		m.stopAsked = true
 		m.session.Engine.RequestStop()
-		m.flash = "Stopping after the current step. Press F10 again to abort the step."
+		m.flash = "Stopping after the current step. Press F10 or Ctrl+C again to abort it now."
 	} else if m.cancelRun != nil {
 		m.cancelRun()
 	}

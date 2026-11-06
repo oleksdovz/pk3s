@@ -399,6 +399,14 @@ func Plan(p *plan.Plan, inv *pve.Inventory, probes Probes) Findings {
 				}
 			}
 		}
+		// A container on an untagged bridge must be in that bridge's
+		// subnet, or its gateway is unreachable (apt then hangs).
+		if br, found := inv.Bridge(s.Network.Bridge); ok && found && s.Network.VLAN == 0 && br.CIDR != "" {
+			if bp, err := netip.ParsePrefix(br.CIDR); err == nil && !bp.Masked().Overlaps(subnet) {
+				add(Error, field, "%s/%d is not in the subnet of bridge %s (%s); the gateway %s is not reachable there. Pick the bridge of that network or set a VLAN tag",
+					n.IP, n.Prefix, br.Name, bp.Masked(), n.Gateway)
+			}
+		}
 		if other, dup := planned[n.IP]; dup {
 			add(Error, field, "IP %s is assigned to both %s and %s", n.IP, other, n.Hostname)
 		}

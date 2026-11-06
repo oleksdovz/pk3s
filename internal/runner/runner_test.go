@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRedactor(t *testing.T) {
@@ -41,5 +42,25 @@ func TestExecLogsWithoutStdout(t *testing.T) {
 	l := lines[0]
 	if strings.Contains(l, "TOPSECRET") || !strings.Contains(l, "-> exit 2") || !strings.Contains(l, "oops") || !strings.Contains(l, "<stdin 9 bytes>") {
 		t.Fatal(l)
+	}
+}
+
+// A cancelled command whose child keeps stdout open must not hang.
+func TestCancelDoesNotHangOnInheritedPipes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := Exec{}.Run(ctx, Cmd{Name: "sh", Args: []string{"-c", "sleep 300 & sleep 300"}})
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected an error after cancel")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after cancel")
 	}
 }
