@@ -62,7 +62,7 @@ type Network struct {
 }
 
 // NodeNetwork overrides addressing for one node. Node keys are role and
-// ordinal: s1, s2, ... for servers and a1, a2, ... for agents. Empty fields
+// ordinal: main1, main2, ... for servers and node1, node2, ... for agents. Empty fields
 // fall back to the cluster-wide Network settings.
 type NodeNetwork struct {
 	Node    string   `yaml:"node"`
@@ -132,7 +132,8 @@ type OS struct {
 // ClusterSpec is the complete user input.
 type ClusterSpec struct {
 	Name string `yaml:"name"`
-	// HostnamePrefix names containers and k3s nodes: <prefix>-s1, <prefix>-a1.
+	// HostnamePrefix names containers and k3s nodes: <prefix>-main1.. for
+	// servers and <prefix>-node1.. for agents.
 	// Empty means the cluster name.
 	HostnamePrefix string         `yaml:"hostname_prefix,omitempty"`
 	Node           string         `yaml:"node"`
@@ -191,9 +192,9 @@ func (s ClusterSpec) Prefix() string {
 // NodeKey returns the override key for the i-th node (servers first).
 func (s ClusterSpec) NodeKey(i int) string {
 	if i < s.Servers {
-		return fmt.Sprintf("s%d", i+1)
+		return fmt.Sprintf("main%d", i+1)
 	}
-	return fmt.Sprintf("a%d", i-s.Servers+1)
+	return fmt.Sprintf("node%d", i-s.Servers+1)
 }
 
 // Override returns the network override for a node key, if any.

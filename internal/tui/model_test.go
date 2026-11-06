@@ -184,8 +184,8 @@ func TestEditPrefixAndPerNodeNetworkThenPlan(t *testing.T) {
 	m = gotoPage(t, m, "Network")
 	m = editField(t, m, "First IP", "192.168.0.51")
 	m = gotoPage(t, m, "Node network")
-	m = editField(t, m, "k3s-lab-a2 IP", "192.168.0.77")
-	m = editField(t, m, "k3s-lab-a2 DNS", "1.1.1.1, 9.9.9.9")
+	m = editField(t, m, "k3s-lab-node2 IP", "192.168.0.77")
+	m = editField(t, m, "k3s-lab-node2 DNS", "1.1.1.1, 9.9.9.9")
 	m = gotoPage(t, m, "Security & host")
 	m.focus = 1
 	for i, f := range m.sections[m.secIdx].fields {
@@ -205,11 +205,11 @@ func TestEditPrefixAndPerNodeNetworkThenPlan(t *testing.T) {
 	if m.screen != scrReview {
 		t.Fatalf("expected review, got %v (flash %q)", m.screen, m.flash)
 	}
-	o, ok := be.prepared.Override("a2")
+	o, ok := be.prepared.Override("node2")
 	if !ok || o.IP != "192.168.0.77" || len(o.DNS) != 2 {
 		t.Fatalf("override not passed to backend: %+v", be.prepared.NodeNetwork)
 	}
-	if !strings.Contains(m.view.View(), "k3s-lab-s1") {
+	if !strings.Contains(m.view.View(), "k3s-lab-main1") {
 		t.Error("plan view should list containers")
 	}
 	// Enter goes to the typed confirmation, not straight to deployment.
@@ -241,12 +241,12 @@ func TestClearingOverrideRestoresDefault(t *testing.T) {
 	m, _ := newModel(t)
 	m = send(t, m, key("enter"))
 	m = gotoPage(t, m, "Node network")
-	m = editField(t, m, "k3s-a1 gateway", "192.168.0.254")
-	if _, ok := m.spec.Override("a1"); !ok {
+	m = editField(t, m, "k3s-node1 gateway", "192.168.0.254")
+	if _, ok := m.spec.Override("node1"); !ok {
 		t.Fatal("override not created")
 	}
-	m = editField(t, m, "k3s-a1 gateway", "")
-	if _, ok := m.spec.Override("a1"); ok {
+	m = editField(t, m, "k3s-node1 gateway", "")
+	if _, ok := m.spec.Override("node1"); ok {
 		t.Fatal("empty override should be removed")
 	}
 }

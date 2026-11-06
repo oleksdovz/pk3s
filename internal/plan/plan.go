@@ -17,7 +17,7 @@ import (
 // Node is one planned container.
 type Node struct {
 	Index     int    // 0-based across all nodes
-	Key       string // s1, s2, a1, ...
+	Key       string // main1, main2, node1, ...
 	Role      k3s.Role
 	Bootstrap bool // first server
 	Hostname  string
@@ -140,12 +140,12 @@ func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, er
 		}
 		if i < s.Servers {
 			n.Role = k3s.RoleServer
-			n.Hostname = fmt.Sprintf("%s-s%d", s.Prefix(), i+1)
+			n.Hostname = s.Prefix() + "-" + n.Key
 			n.Resources = s.Server
 			n.Bootstrap = i == 0
 		} else {
 			n.Role = k3s.RoleAgent
-			n.Hostname = fmt.Sprintf("%s-a%d", s.Prefix(), i-s.Servers+1)
+			n.Hostname = s.Prefix() + "-" + n.Key
 			n.Resources = s.Agent
 		}
 		if s.Persistent.Enabled && s.Persistent.HostPath != "" {
@@ -156,7 +156,7 @@ func Build(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string) (*Plan, er
 	}
 	for k := range overrideKeys(s) {
 		if !validKey(s, k) {
-			return nil, fmt.Errorf("node_network: unknown node %q (valid: s1..s%d, a1..a%d)", k, s.Servers, s.Agents)
+			return nil, fmt.Errorf("node_network: unknown node %q (valid: main1..main%d, node1..node%d)", k, s.Servers, s.Agents)
 		}
 	}
 	p.Endpoint = p.Nodes[0].IP

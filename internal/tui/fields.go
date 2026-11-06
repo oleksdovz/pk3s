@@ -163,7 +163,7 @@ func buildSections(s *spec.ClusterSpec, inv *pve.Inventory) []section {
 	secs := []section{
 		{
 			title: "Cluster", prefixes: []string{"name", "hostname_prefix", "ctid_start", "node", "host"},
-			intro: "Containers are named <prefix>-s1.. (servers) and <prefix>-a1.. (agents).",
+			intro: "Containers are named <prefix>-main1.. (servers) and <prefix>-node1.. (agents).",
 			fields: []field{
 				textField("Cluster name", "Used for state, tags (pk3s-<name>) and kubeconfig context", func(s *spec.ClusterSpec) *string { return &s.Name }),
 				textField("Hostname prefix", "Prefix for container and k3s node names; empty = cluster name", func(s *spec.ClusterSpec) *string { return &s.HostnamePrefix }),

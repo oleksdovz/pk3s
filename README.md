@@ -94,7 +94,7 @@ Ctrl-C during `apply` finishes the current step and stops. Press it a second tim
 
 ```yaml
 name: lab
-hostname_prefix: k3s-lab        # containers: k3s-lab-s1.., k3s-lab-a1..
+hostname_prefix: k3s-lab        # containers: k3s-lab-main1.. (servers), k3s-lab-node1.. (agents)
 servers: 3                      # 1 = SQLite; 3/5/7 = embedded etcd
 agents: 2
 ctid_start: 5000
@@ -112,7 +112,7 @@ network:
   gateway: 192.168.0.1
   dns: [192.168.0.2]
 node_network:                   # optional per-container overrides
-  - node: a2
+  - node: node2
     ip: 192.168.0.60
     dns: [1.1.1.1]
 k3s:

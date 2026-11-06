@@ -25,19 +25,19 @@ func TestPrefixAndNodeKeys(t *testing.T) {
 		t.Fatal(s.Prefix())
 	}
 	s.HostnamePrefix = "k"
-	if s.Prefix() != "k" || s.NodeKey(0) != "s1" || s.NodeKey(2) != "s3" || s.NodeKey(3) != "a1" {
+	if s.Prefix() != "k" || s.NodeKey(0) != "main1" || s.NodeKey(2) != "main3" || s.NodeKey(3) != "node1" {
 		t.Fatal("bad keys")
 	}
 }
 
 func TestSetOverride(t *testing.T) {
 	var s ClusterSpec
-	s.SetOverride(NodeNetwork{Node: "a1", IP: "10.0.0.5"})
-	s.SetOverride(NodeNetwork{Node: "a1", IP: "10.0.0.6"})
-	if o, _ := s.Override("a1"); len(s.NodeNetwork) != 1 || o.IP != "10.0.0.6" {
+	s.SetOverride(NodeNetwork{Node: "node1", IP: "10.0.0.5"})
+	s.SetOverride(NodeNetwork{Node: "node1", IP: "10.0.0.6"})
+	if o, _ := s.Override("node1"); len(s.NodeNetwork) != 1 || o.IP != "10.0.0.6" {
 		t.Fatalf("%+v", s.NodeNetwork)
 	}
-	s.SetOverride(NodeNetwork{Node: "a1"})
+	s.SetOverride(NodeNetwork{Node: "node1"})
 	if len(s.NodeNetwork) != 0 {
 		t.Fatal("empty override must be removed")
 	}
@@ -45,7 +45,7 @@ func TestSetOverride(t *testing.T) {
 
 func TestRoundTrip(t *testing.T) {
 	s := Default()
-	s.NodeNetwork = []NodeNetwork{{Node: "s1", IP: "10.0.0.1", DNS: []string{"1.1.1.1"}}}
+	s.NodeNetwork = []NodeNetwork{{Node: "main1", IP: "10.0.0.1", DNS: []string{"1.1.1.1"}}}
 	data, err := Marshal(s)
 	if err != nil {
 		t.Fatal(err)

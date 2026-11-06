@@ -64,12 +64,12 @@ func TestErrors(t *testing.T) {
 		{"risk not acknowledged", func(s *spec.ClusterSpec) { s.Security.AcknowledgePrivilegedRisk = false }, validate.Probes{}, "security.acknowledge", "host root"},
 		{"bad name", func(s *spec.ClusterSpec) { s.Name = "Lab_1" }, validate.Probes{}, "name", "lowercase"},
 		{"bad prefix", func(s *spec.ClusterSpec) { s.HostnamePrefix = "-x" }, validate.Probes{}, "hostname_prefix", "lowercase"},
-		{"ctid conflict with existing CT 9000", func(s *spec.ClusterSpec) { s.CTIDStart = 8999 }, validate.Probes{}, "nodes.a1", "CT ID 9000"},
-		{"ip of existing CT", func(s *spec.ClusterSpec) { s.Network.FirstIP = "192.168.0.6" }, validate.Probes{}, "nodes.s1", "lxc 9000"},
-		{"ip of host bridge", func(s *spec.ClusterSpec) { s.Network.FirstIP = "192.168.0.5" }, validate.Probes{}, "nodes.s1", "host bridge"},
-		{"ip answers ping", func(s *spec.ClusterSpec) {}, validate.Probes{IPInUse: func(ip string) bool { return ip == "192.168.0.52" }}, "nodes.a1", "answers"},
-		{"gateway outside subnet", func(s *spec.ClusterSpec) { s.Network.Gateway = "10.0.0.1" }, validate.Probes{}, "nodes.s1", "not in"},
-		{"runs past subnet", func(s *spec.ClusterSpec) { s.Network.FirstIP = "192.168.0.254" }, validate.Probes{}, "nodes.a1", "broadcast"},
+		{"ctid conflict with existing CT 9000", func(s *spec.ClusterSpec) { s.CTIDStart = 8999 }, validate.Probes{}, "nodes.node1", "CT ID 9000"},
+		{"ip of existing CT", func(s *spec.ClusterSpec) { s.Network.FirstIP = "192.168.0.6" }, validate.Probes{}, "nodes.main1", "lxc 9000"},
+		{"ip of host bridge", func(s *spec.ClusterSpec) { s.Network.FirstIP = "192.168.0.5" }, validate.Probes{}, "nodes.main1", "host bridge"},
+		{"ip answers ping", func(s *spec.ClusterSpec) {}, validate.Probes{IPInUse: func(ip string) bool { return ip == "192.168.0.52" }}, "nodes.node1", "answers"},
+		{"gateway outside subnet", func(s *spec.ClusterSpec) { s.Network.Gateway = "10.0.0.1" }, validate.Probes{}, "nodes.main1", "not in"},
+		{"runs past subnet", func(s *spec.ClusterSpec) { s.Network.FirstIP = "192.168.0.254" }, validate.Probes{}, "nodes.node1", "broadcast"},
 		{"missing storage", func(s *spec.ClusterSpec) { s.RootfsStorage = "nope" }, validate.Probes{}, "rootfs_storage", "not found"},
 		{"storage without rootdir", func(s *spec.ClusterSpec) { s.RootfsStorage = "local" }, validate.Probes{}, "rootfs_storage", "rootdir"},
 		{"template missing", func(s *spec.ClusterSpec) { s.Template.Name = "debian-13-standard_99_amd64.tar.zst" }, validate.Probes{}, "template.name", "not found"},
@@ -83,13 +83,13 @@ func TestErrors(t *testing.T) {
 		{"non-empty data dir", func(s *spec.ClusterSpec) {
 			s.Persistent = spec.PersistentData{Enabled: true, HostPath: "/data/k3s-storage"}
 		},
-			validate.Probes{DirNonEmpty: func(p string) bool { return strings.HasSuffix(p, "lab-s1") }}, "nodes.s1", "not empty"},
+			validate.Probes{DirNonEmpty: func(p string) bool { return strings.HasSuffix(p, "lab-main1") }}, "nodes.main1", "not empty"},
 		{"duplicate per-node IP", func(s *spec.ClusterSpec) {
-			s.NodeNetwork = []spec.NodeNetwork{{Node: "a2", IP: "192.168.0.51"}}
-		}, validate.Probes{}, "nodes.a2", "assigned to both"},
+			s.NodeNetwork = []spec.NodeNetwork{{Node: "node2", IP: "192.168.0.51"}}
+		}, validate.Probes{}, "nodes.node2", "assigned to both"},
 		{"bad per-node DNS", func(s *spec.ClusterSpec) {
-			s.NodeNetwork = []spec.NodeNetwork{{Node: "a1", DNS: []string{"dns.example"}}}
-		}, validate.Probes{}, "nodes.a1", "DNS"},
+			s.NodeNetwork = []spec.NodeNetwork{{Node: "node1", DNS: []string{"dns.example"}}}
+		}, validate.Probes{}, "nodes.node1", "DNS"},
 		{"pod CIDR overlaps LAN", func(s *spec.ClusterSpec) { s.K3s.ClusterCIDR = "192.168.0.0/16" }, validate.Probes{}, "k3s", "overlaps"},
 		{"state exists", func(s *spec.ClusterSpec) {}, validate.Probes{StateExists: func(string) bool { return true }}, "name", "already exists"},
 	}
@@ -109,7 +109,7 @@ func TestWarnings(t *testing.T) {
 	s := good()
 	s.Server.MemoryMiB = 2048
 	s.Security.Fuse = true
-	s.NodeNetwork = []spec.NodeNetwork{{Node: "a2", IP: "10.20.0.5", Prefix: 24, Gateway: "10.20.0.1"}}
+	s.NodeNetwork = []spec.NodeNetwork{{Node: "node2", IP: "10.20.0.5", Prefix: 24, Gateway: "10.20.0.1"}}
 	fs := all(t, s, validate.Probes{})
 	if fs.HasErrors() {
 		t.Fatalf("unexpected errors: %v", fs)

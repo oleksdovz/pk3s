@@ -283,7 +283,7 @@ func TestFullDeployment(t *testing.T) {
 	}
 	// LXC profile and bind mount applied.
 	conf := h.sim.cts[5000].conf
-	for _, want := range []string{"tags: pk3s;pk3s-lab", "lxc.apparmor.profile: unconfined", "lxc.mount.entry: /dev/kmsg", "mp0: /data/k3s-storage/lab/lab-s1,mp=/var/lib/rancher/k3s/storage"} {
+	for _, want := range []string{"tags: pk3s;pk3s-lab", "lxc.apparmor.profile: unconfined", "lxc.mount.entry: /dev/kmsg", "mp0: /data/k3s-storage/lab/lab-main1,mp=/var/lib/rancher/k3s/storage"} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("CT 5000 config missing %q:\n%s", want, conf)
 		}
@@ -368,11 +368,11 @@ func TestResumeAfterFailure(t *testing.T) {
 	h.sim.failOnce["pct push 5003"] = true
 	err := h.eng.Run(context.Background())
 	var se *engine.StepError
-	if !errors.As(err, &se) || se.Step.ID != "k3s-install/lab-a1" {
-		t.Fatalf("expected failure at k3s-install/lab-a1, got %v", err)
+	if !errors.As(err, &se) || se.Step.ID != "k3s-install/lab-node1" {
+		t.Fatalf("expected failure at k3s-install/lab-node1, got %v", err)
 	}
 	st, _ := h.store.Load()
-	if st.Steps["k3s-install/lab-a1"].Status != state.StatusFailed || st.Steps["ct-create/lab-s1"].Status != state.StatusDone {
+	if st.Steps["k3s-install/lab-node1"].Status != state.StatusFailed || st.Steps["ct-create/lab-main1"].Status != state.StatusDone {
 		t.Fatalf("state not recorded: %+v", st.Steps)
 	}
 	creates := countPrefix(h.sim.calls, "pct create")
@@ -413,7 +413,7 @@ func TestRefusesForeignContainer(t *testing.T) {
 func TestStopBetweenSteps(t *testing.T) {
 	h := newHarness(t, nil)
 	h.eng.Notify = func(ev engine.Event) {
-		if ev.Kind == engine.EventStepDone && ev.StepID == "ct-create/lab-s1" {
+		if ev.Kind == engine.EventStepDone && ev.StepID == "ct-create/lab-main1" {
 			h.eng.RequestStop()
 		}
 	}

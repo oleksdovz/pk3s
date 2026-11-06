@@ -40,11 +40,11 @@ func TestLayout(t *testing.T) {
 		ip   string
 		role k3s.Role
 	}{
-		{"k3s-lab-s1", 5000, "192.168.0.51", k3s.RoleServer},
-		{"k3s-lab-s2", 5001, "192.168.0.52", k3s.RoleServer},
-		{"k3s-lab-s3", 5002, "192.168.0.53", k3s.RoleServer},
-		{"k3s-lab-a1", 5003, "192.168.0.54", k3s.RoleAgent},
-		{"k3s-lab-a2", 5004, "192.168.0.55", k3s.RoleAgent},
+		{"k3s-lab-main1", 5000, "192.168.0.51", k3s.RoleServer},
+		{"k3s-lab-main2", 5001, "192.168.0.52", k3s.RoleServer},
+		{"k3s-lab-main3", 5002, "192.168.0.53", k3s.RoleServer},
+		{"k3s-lab-node1", 5003, "192.168.0.54", k3s.RoleAgent},
+		{"k3s-lab-node2", 5004, "192.168.0.55", k3s.RoleAgent},
 	}
 	for i, w := range want {
 		n := p.Nodes[i]
@@ -65,7 +65,7 @@ func TestLayout(t *testing.T) {
 
 func TestPerNodeNetworkOverride(t *testing.T) {
 	s := baseSpec()
-	s.NodeNetwork = []spec.NodeNetwork{{Node: "a2", IP: "10.10.0.20", Prefix: 16, Gateway: "10.10.0.1", DNS: []string{"1.1.1.1"}}}
+	s.NodeNetwork = []spec.NodeNetwork{{Node: "node2", IP: "10.10.0.20", Prefix: 16, Gateway: "10.10.0.1", DNS: []string{"1.1.1.1"}}}
 	p, err := plan.Build(s, testutil.HPInventory(t), ver)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestPerNodeNetworkOverride(t *testing.T) {
 
 func TestUnknownOverrideKey(t *testing.T) {
 	s := baseSpec()
-	s.NodeNetwork = []spec.NodeNetwork{{Node: "a9", IP: "10.0.0.1"}}
+	s.NodeNetwork = []spec.NodeNetwork{{Node: "node9", IP: "10.0.0.1"}}
 	if _, err := plan.Build(s, testutil.HPInventory(t), ver); err == nil {
 		t.Fatal("expected error for unknown node key")
 	}
@@ -136,7 +136,7 @@ func TestStepsAndHostChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Nodes[0].DataDir != "/data/k3s-storage/lab/lab-s1" {
+	if p.Nodes[0].DataDir != "/data/k3s-storage/lab/lab-main1" {
 		t.Errorf("data dir %q", p.Nodes[0].DataDir)
 	}
 	// Template exists on host: no download step.
@@ -148,7 +148,7 @@ func TestStepsAndHostChanges(t *testing.T) {
 		t.Error("template step should be absent when the template exists")
 	}
 	tokens := slices.Index(ids, "k3s-tokens")
-	s2 := slices.Index(ids, "ct-create/lab-s2")
+	s2 := slices.Index(ids, "ct-create/lab-main2")
 	if tokens < 0 || s2 < tokens {
 		t.Errorf("tokens must be read before the second node is created: %v", ids)
 	}
