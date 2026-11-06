@@ -50,6 +50,27 @@ git clone https://github.com/oleksdovz/pk3s && cd pk3s
 CGO_ENABLED=0 go build -o /usr/local/bin/pk3s ./cmd/pk3s
 ```
 
+## Run from your workstation (remote mode)
+
+pk3s can be started on macOS, Windows or Linux and run against a Proxmox
+host over SSH (system OpenSSH client; your keys, agent and `~/.ssh/config`
+are used):
+
+```sh
+pk3s --host root@pve                          # TUI in your terminal
+pk3s --host root@pve init lab                 # writes ./lab.yaml locally
+pk3s --host root@pve plan  -f lab.yaml        # the local file is uploaded
+pk3s --host root@pve apply -f lab.yaml
+pk3s --host root@pve kubeconfig lab > ~/.kube/lab.yaml
+```
+
+pk3s checks that the host runs Proxmox VE and that you are root. It uploads
+the Linux pk3s binary for the host's architecture to
+`/var/lib/pk3s/bin/pk3s-<sha256>`, verifies its SHA-256, and runs it there.
+State, logs and the k3s cache stay on the host, so local and remote runs
+see the same clusters. Builds from `make dist` embed the Linux binaries;
+otherwise pass `--remote-bin PATH`. Options: `--ssh-port`, `--ssh-key`.
+
 ## Usage
 
 ### Interactive
@@ -216,7 +237,7 @@ More complete examples are in [examples/](examples/).
 - All containers are placed on the Proxmox node where pk3s runs. Multi-node placement is planned.
 - The API endpoint is the first server's IP, not a floating VIP. With 3+ servers, agents fail over through k3s' client-side load balancer, but your kubeconfig does not. This is not host-level HA: one Proxmox host is a single point of failure.
 - IPv4 only.
-- Remote mode (`pk3s --host <proxmox>` from macOS/Windows) is planned. See [docs/DESIGN.md](docs/DESIGN.md).
+- Remote mode uploads and runs pk3s on the Proxmox host. A mode that keeps pk3s only on the workstation (SSH command runner) is not implemented.
 
 ## Documentation
 

@@ -2,3 +2,4 @@
 /dist/
 *.yaml.local
 /cluster.yaml
+/internal/remote/bin/*.gz

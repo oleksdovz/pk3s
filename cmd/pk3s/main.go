@@ -3,19 +3,25 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/oleksdovz/pk3s/internal/app"
 	"github.com/oleksdovz/pk3s/internal/engine"
 	"github.com/oleksdovz/pk3s/internal/plan"
+	"github.com/oleksdovz/pk3s/internal/remote"
 	"github.com/oleksdovz/pk3s/internal/report"
+	"github.com/oleksdovz/pk3s/internal/runner"
 	"github.com/oleksdovz/pk3s/internal/spec"
 	"github.com/oleksdovz/pk3s/internal/state"
 	"github.com/oleksdovz/pk3s/internal/tui"
@@ -39,7 +45,15 @@ Usage:
   pk3s status  NAME          show containers and Kubernetes node status
   pk3s list                  list clusters managed by pk3s
   pk3s destroy NAME          remove containers created by pk3s (asks first)
+  pk3s kubeconfig NAME       print the cluster's admin kubeconfig (secret!)
   pk3s version
+
+Remote mode (run from a workstation: macOS, Windows, Linux):
+  pk3s --host root@pve [--ssh-port N] [--ssh-key FILE] [--remote-bin FILE] COMMAND ...
+                             uploads pk3s to the Proxmox host (verified by SHA-256)
+                             and runs COMMAND there; -f files are uploaded, init
+                             output and redirected stdout stay local, e.g.
+                             pk3s --host root@pve kubeconfig lab > ~/.kube/lab.yaml
 
 Global flags:
   --root DIR                 state directory (default /var/lib/pk3s)
@@ -54,6 +68,11 @@ func main() {
 }
 
 func run(args []string) (err error) {
+	// Remote mode: --host [user@]proxmox runs pk3s on that host over SSH.
+	if t, rest, ok := remoteTarget(args); ok {
+		return runRemote(t, rest)
+	}
+
 	root, logDir := state.DefaultRoot, app.DefaultLogDir
 	// Extract --root / --log-dir anywhere in the arguments.
 	var rest []string
@@ -86,7 +105,7 @@ func run(args []string) (err error) {
 		return nil
 	}
 	if os.Geteuid() != 0 {
-		return errors.New("pk3s must run as root on a Proxmox VE host")
+		return errors.New("pk3s must run as root on a Proxmox VE host (from a workstation use: pk3s --host root@<proxmox> ...)")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
@@ -132,6 +151,8 @@ func run(args []string) (err error) {
 		return nil
 	case "destroy":
 		return cmdDestroy(ctx, a, rest)
+	case "kubeconfig":
+		return cmdKubeconfig(a, rest)
 	default:
 		fmt.Print(usage)
 		return fmt.Errorf("unknown command %q", cmd)
@@ -360,4 +381,105 @@ func cmdDestroy(ctx context.Context, a *app.App, args []string) error {
 		return errors.New("aborted; nothing was changed")
 	}
 	return a.Destroy(ctx, dp, func(s string) { fmt.Println(s) })
+}
+
+// remoteTarget extracts the remote-mode flags; ok is false without --host.
+func remoteTarget(args []string) (remote.Target, []string, bool) {
+	var t remote.Target
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		val := func(name string) (string, bool) {
+			if a == name && i+1 < len(args) {
+				i++
+				return args[i], true
+			}
+			if v, ok := strings.CutPrefix(a, name+"="); ok {
+				return v, true
+			}
+			return "", false
+		}
+		if v, ok := val("--host"); ok {
+			t.Host = v
+		} else if v, ok := val("--ssh-port"); ok {
+			t.Port = v
+		} else if v, ok := val("--ssh-key"); ok {
+			t.Identity = v
+		} else if v, ok := val("--remote-bin"); ok {
+			t.BinaryPath = v
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	return t, rest, t.Host != ""
+}
+
+func runRemote(t remote.Target, args []string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer cancel()
+	c := remote.Client{T: t, R: runner.Exec{}}
+	info, err := c.Probe(ctx)
+	if err != nil {
+		return err
+	}
+	if !info.PVE {
+		return fmt.Errorf("%s is not a Proxmox VE host (pct not found)", t.Host)
+	}
+	if !info.Root {
+		host := t.Host[strings.LastIndex(t.Host, "@")+1:]
+		return fmt.Errorf("pk3s needs root on the Proxmox host: use --host root@%s", host)
+	}
+	bin, _, err := remote.Binary(info.Arch, t.BinaryPath)
+	if err != nil {
+		return err
+	}
+	path, err := c.Install(ctx, bin)
+	if err != nil {
+		return err
+	}
+	p := remote.Rewrite(args)
+	for idx, local := range p.Uploads {
+		rp, err := c.Upload(ctx, local)
+		if err != nil {
+			return err
+		}
+		p.Args[idx] = rp
+	}
+	var out io.Writer = os.Stdout
+	var buf bytes.Buffer
+	if p.SaveTo != "" {
+		out = &buf
+	}
+	tty := p.SaveTo == "" && isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
+	code, err := remote.Exec(ctx, t, path, p.Args, out, tty)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		os.Exit(code)
+	}
+	if p.SaveTo != "" {
+		if err := os.WriteFile(p.SaveTo, buf.Bytes(), 0o600); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "Wrote %s (scanned on %s). Run: pk3s --host %s plan -f %s\n", p.SaveTo, t.Host, t.Host, p.SaveTo)
+	}
+	return nil
+}
+
+func cmdKubeconfig(a *app.App, args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: pk3s kubeconfig NAME")
+	}
+	store := &state.Store{Root: a.Root, Cluster: args[0]}
+	if !store.Exists() {
+		return a.NoStateError(args[0])
+	}
+	data, err := os.ReadFile(store.Path("kubeconfig"))
+	if err != nil {
+		return fmt.Errorf("no kubeconfig for %q yet: %w", args[0], err)
+	}
+	a.Logf("kubeconfig of %q printed to stdout", args[0])
+	_, err = os.Stdout.Write(data)
+	return err
 }

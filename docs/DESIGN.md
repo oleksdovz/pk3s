@@ -146,28 +146,29 @@ host state, pk3s finds main1 by the `pk3s-<name>` tag and rebuilds
 `state.json`, `spec.yaml`, `secrets.json` (tokens re-read from main1) and
 the kubeconfig.
 
-### Remote mode: run from a workstation (planned)
+### Remote mode (implemented as a remote launcher)
 
-Goal: `pk3s --host root@pve` from macOS (arm64), Windows or Linux.
+`pk3s --host [user@]host COMMAND …` on a workstation (macOS, Windows,
+Linux) uses the system `ssh` to:
 
-- Add an `SSHRunner` that implements `runner.Runner`. It runs
-  `ssh -o BatchMode=yes <host> -- <shell-quoted command>` (system OpenSSH,
-  which also ships with Windows 10+ and macOS), so the user's existing keys,
-  agent and `~/.ssh/config` work. Stdin is forwarded, which `pct exec … sh -s`
-  and `tee` already use.
-- Move the remaining host-side file operations behind the runner:
-  - `engine.FS` writes (modules file, data directories, temp configs for
-    `pct push`) become `install -m 0600 /dev/stdin <path>` over SSH;
-  - the state store keeps its files on the Proxmox host
-    (`/var/lib/pk3s`), so local and remote runs see the same state and lock.
-    The local machine keeps only an optional kubeconfig copy (0600).
-- k3s artifacts: download on the Proxmox host (`curl -fLo` + `sha256sum -c`
-  through the runner) so the workstation's architecture and bandwidth do not
-  matter. Checksums are still compared in Go.
-- Validation probes (ping, data directories) run on the Proxmox host, not on
-  the workstation.
-- Cross-compiled builds for windows/darwin already compile (the lock uses
-  build tags).
+1. check the host: architecture, root, `pct`;
+2. upload the Linux pk3s binary for that architecture to
+   `/var/lib/pk3s/bin/pk3s-<sha256-prefix>` (skipped if an identical copy
+   exists; verified with `sha256sum` before it is moved into place);
+3. upload local files given with `-f` to `/var/lib/pk3s/uploads/`;
+4. run the remote pk3s with the user's terminal (`ssh -t` when stdin and
+   stdout are terminals, so the TUI works). `init` output and redirected
+   stdout are written locally.
+
+`make dist` embeds gzip-compressed Linux amd64/arm64 binaries into every
+build (`-tags embedlinux`); otherwise `--remote-bin` points at one.
+
+Why not a pure SSH command runner? Every host-side operation (state file
+lock, artifact cache and checksum, temp files for `pct push`, log) would
+have to go through SSH, and two workstations could manage the same host
+with different state. Running pk3s on the host keeps one code path and one
+source of truth. A pure SSH runner remains possible later: all host
+commands already go through `runner.Runner`.
 
 ### Other phases
 

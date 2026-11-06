@@ -30,5 +30,8 @@ Start here when resuming work:
 ```
 go test ./...
 go vet ./...
-GOOS=linux GOARCH=amd64 go build -o dist/pk3s ./cmd/pk3s
+make build        # dist/pk3s-linux-amd64 for the Proxmox host
+make dist         # all platforms, Linux binaries embedded for --host
 ```
+Install on the test host without disturbing a running pk3s:
+`scp dist/pk3s-linux-amd64 hp:/usr/local/bin/pk3s.new && ssh hp 'mv -f /usr/local/bin/pk3s.new /usr/local/bin/pk3s'`

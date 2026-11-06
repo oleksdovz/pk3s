@@ -44,7 +44,9 @@ unless stated explicitly.
   - persistent data bind mounts + local-path PVCs (examples/manifests/local-path-pvc-test.yaml);
   - TUI F-key navigation in a real terminal (macOS Terminal / iTerm over SSH);
   - unprivileged-experimental profile.
-- Not implemented: removing servers (etcd member removal); multi-host placement; remote mode.
+- (done, live) parallel provision + merged steps; scale-up agents 2→5; scale-down 5→1; servers 1→3; remote mode from macOS (`--host`).
+- Not yet tested live: rolling k3s upgrade (needs a cluster on v1.36.x), CPU/RAM/disk change, ConfigMap recovery, persistent data + PVCs, remote TUI over `ssh -t`, Windows client, unprivileged profile.
+- Not implemented: removing servers (etcd member removal); multi-host placement; memory capacity check; pure SSH runner (pk3s only on the workstation).
 
 ## Planned (later phases)
 - Remote mode: `pk3s --host <proxmox>` from macOS (arm64) / Windows / Linux over SSH.
