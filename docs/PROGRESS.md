@@ -19,7 +19,7 @@ unless stated explicitly.
 - Tests: inventory against fixtures captured read-only from the PVE 9.2 host `hp`; plan; validation table tests; engine against a Proxmox simulator (full run, secret leakage, resume, foreign CT refusal, stop).
 
 ## Next
-- TUI tests (teatest-style model tests), spec/state/report tests.
+- (done) TUI model tests, spec/state/runner tests.
 - README, docs/DESIGN.md, docs/SECURITY.md, docs/TESTING.md, LICENSE (Apache-2.0), Makefile.
 - Live test on `hp` (only after explicit approval; creates containers).
 
