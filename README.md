@@ -60,7 +60,8 @@ pk3s
 
 Midnight-Commander-style function keys; the same verb is on the same key on
 every screen (dimmed when not available). If the terminal captures F-keys,
-use `Alt+1` … `Alt+0`.
+use `Alt+1` … `Alt+0`. `Ctrl+L` redraws the screen at the current terminal
+size; the layout also follows window resizes automatically.
 
 | Key | Verb |
 |-----|------|

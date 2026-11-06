@@ -162,7 +162,9 @@ func Run(ctx context.Context, a *app.App, version string) error {
 
 // Init implements tea.Model.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spin.Tick, m.loadInventory())
+	// Ask for the current terminal size explicitly so the first frame
+	// already uses it.
+	return tea.Batch(m.spin.Tick, m.loadInventory(), tea.WindowSize())
 }
 
 func (m Model) loadInventory() tea.Cmd {
@@ -278,6 +280,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := k.String()
+	if key == "ctrl+l" {
+		// Redraw: re-read the terminal size and repaint from scratch.
+		return m, tea.Batch(tea.ClearScreen, tea.WindowSize())
+	}
 	if m.help {
 		if key == "esc" || fkey(k) == fHelp || key == "enter" || key == "q" {
 			m.help = false

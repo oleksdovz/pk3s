@@ -286,6 +286,7 @@ func (m Model) keyDestroy(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) helpText() string {
 	common := `Function keys work the same on every screen; dimmed keys do nothing here.
 If your terminal captures F-keys, use Alt+1 .. Alt+0 instead.
+Ctrl+L redraws the screen at the current terminal size.
 
   F1 Help     F2 Save spec   F3 View status   F4 Edit       F5 New cluster
   F6 Resume   F7 Export spec F8 Destroy       F9 Plan/Apply F10 Quit (Stop while running)

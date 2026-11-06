@@ -392,3 +392,11 @@ func planFor(t *testing.T) (*plan.Plan, error) {
 	s.Template = spec.Template{Storage: "local", Name: "debian-13-standard_13.1-2_amd64.tar.zst"}
 	return plan.Build(s, testutil.HPInventory(t), "v1.37.2+k3s1")
 }
+
+func TestCtrlLRedraws(t *testing.T) {
+	m, _ := newModel(t)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	if cmd == nil {
+		t.Fatal("Ctrl+L should return redraw commands")
+	}
+}

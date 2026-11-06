@@ -60,7 +60,7 @@ func (m Model) View() string {
 		body = "\n  " + stErr.Render(m.err.Error()) + "\n\n  pk3s must run as root on a Proxmox VE host.\n  Press Enter to exit."
 	case scrMenu:
 		body = m.viewMenu()
-		hint = "↑↓ select  Enter open"
+		hint = "↑↓ select  Enter open  Ctrl+L redraw"
 	case scrWizard:
 		body = m.viewWizard(w)
 		if m.editing {
@@ -82,7 +82,7 @@ func (m Model) View() string {
 		hint = "Enter confirm  Esc back"
 	case scrRunning:
 		body = m.viewRunning(w)
-		hint = "F10 / Ctrl+C stop after the current step"
+		hint = "F10 / Ctrl+C stop after the current step  Ctrl+L redraw"
 	case scrDone:
 		body = m.viewDone(w)
 		hint = "Enter main menu"
