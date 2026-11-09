@@ -66,7 +66,7 @@ func Plan(p *plan.Plan) string {
 		b.WriteString("Containers\n")
 	}
 	tw := tabwriter.NewWriter(&b, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "  CTID\tHOSTNAME\tROLE\tADDRESS\tGATEWAY\tDNS\tCPU\tRAM\tDISK\tDATA DIR")
+	fmt.Fprintln(tw, "  CTID\tHOSTNAME\tROLE\tADDRESS\tGATEWAY\tDNS\tCPU\tRAM\tDISK\tDATA DIR\tSHARED DIR")
 	for _, n := range p.Nodes {
 		role := string(n.Role)
 		if n.Bootstrap {
@@ -79,12 +79,12 @@ func Plan(p *plan.Plan) string {
 		if n.DataDir != "" {
 			data = n.DataDir
 		}
-		fmt.Fprintf(tw, "  %d\t%s\t%s\t%s/%d\t%s\t%s\t%d\t%d MiB\t%d GiB on %s\t%s\n",
-			n.CTID, n.Hostname, role, n.IP, n.Prefix, n.Gateway, strings.Join(n.DNS, ","), n.Resources.Cores, n.Resources.MemoryMiB, n.Resources.DiskGiB, s.RootfsStorage, data)
+		fmt.Fprintf(tw, "  %d\t%s\t%s\t%s/%d\t%s\t%s\t%d\t%d MiB\t%d GiB on %s\t%s\t%s\n",
+			n.CTID, n.Hostname, role, n.IP, n.Prefix, n.Gateway, strings.Join(n.DNS, ","), n.Resources.Cores, n.Resources.MemoryMiB, n.Resources.DiskGiB, s.RootfsStorage, data, orDash(n.SharedDir))
 	}
 	for _, n := range p.Removed {
-		fmt.Fprintf(tw, "  %d\t%s\t%s REMOVE\t%s/%d\t%s\t%s\t%d\t%d MiB\t%d GiB\t%s\n",
-			n.CTID, n.Hostname, n.Role, n.IP, n.Prefix, n.Gateway, strings.Join(n.DNS, ","), n.Resources.Cores, n.Resources.MemoryMiB, n.Resources.DiskGiB, orDash(n.DataDir))
+		fmt.Fprintf(tw, "  %d\t%s\t%s REMOVE\t%s/%d\t%s\t%s\t%d\t%d MiB\t%d GiB\t%s\t%s\n",
+			n.CTID, n.Hostname, n.Role, n.IP, n.Prefix, n.Gateway, strings.Join(n.DNS, ","), n.Resources.Cores, n.Resources.MemoryMiB, n.Resources.DiskGiB, orDash(n.DataDir), orDash(n.SharedDir))
 	}
 	tw.Flush()
 

@@ -226,6 +226,14 @@ func buildSections(s *spec.ClusterSpec, inv *pve.Inventory, layout []plan.NodeRe
 			},
 		},
 		{
+			title: "Shared data", prefixes: []string{"shared_data"},
+			intro: "Optionally bind-mount ONE host directory into every container at\n/k3s-shared (same directory everywhere, unlike persistent data above).\nBacks the local-shared StorageClass: PVCs on it can be mounted\nReadWriteMany from any node. Data survives container destroy, is NOT\nincluded in vzdump backups and blocks CT migration.",
+			fields: []field{
+				toggleField("Use host directory", "", func(s *spec.ClusterSpec) *bool { return &s.Shared.Enabled }),
+				textField("Host path", "e.g. /data/k3s-shared", func(s *spec.ClusterSpec) *string { return &s.Shared.HostPath }),
+			},
+		},
+		{
 			title: "k3s", prefixes: []string{"k3s"},
 			fields: []field{
 				textField("Version", "Exact release (v1.37.2+k3s1) or channel (stable, latest, v1.36)", func(s *spec.ClusterSpec) *string { return &s.K3s.Version }),

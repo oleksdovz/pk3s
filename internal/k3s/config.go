@@ -35,6 +35,10 @@ const (
 	AgentTokenPath   = "/var/lib/rancher/k3s/server/agent-token"
 	KubeconfigPath   = "/etc/rancher/k3s/k3s.yaml"
 	LocalStoragePath = "/var/lib/rancher/k3s/storage"
+	// SharedStoragePath is where pk3s bind-mounts the shared_data host
+	// directory in every container; the same path everywhere, backing the
+	// local-shared StorageClass's sharedFileSystemPath.
+	SharedStoragePath = "/k3s-shared"
 )
 
 // NodeConfig is rendered to /etc/rancher/k3s/config.yaml. It holds join

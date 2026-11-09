@@ -84,14 +84,38 @@ func (e *Engine) createCT(ctx context.Context, n plan.Node) error {
 	return e.addResource(state.KindContainer, ctID(n))
 }
 
+// hasMountPoint reports whether pct config conf already defines mpN.
+func hasMountPoint(conf string, n int) bool {
+	prefix := fmt.Sprintf("mp%d:", n)
+	return strings.Contains(conf, "\n"+prefix) || strings.HasPrefix(conf, prefix)
+}
+
 func (e *Engine) configureCT(ctx context.Context, n plan.Node) error {
+	// Shared dir permissions are fixed up on every call, not just when the
+	// mount is first created: MkdirAll only applies its perm to a
+	// directory it actually creates (masked by umask too), so an already
+	// existing directory - from a previous pk3s run, or created by
+	// anything else - needs an explicit chmod to guarantee every
+	// container can write it. This needs no container stop.
+	if n.SharedDir != "" {
+		if err := e.FS.MkdirAll(n.SharedDir, 0o777); err != nil {
+			return fmt.Errorf("create shared dir: %w", err)
+		}
+		if err := e.FS.Chmod(n.SharedDir, 0o777); err != nil {
+			return fmt.Errorf("fix shared dir permissions: %w", err)
+		}
+		if err := e.addResource(state.KindDataDir, n.SharedDir); err != nil {
+			return err
+		}
+	}
 	conf, err := e.PCT.ReadConfig(ctx, n.CTID)
 	if err != nil {
 		return err
 	}
 	missing := pve.MissingLines(conf, e.Plan.Profile.Lines())
-	needMount := n.DataDir != "" && !strings.Contains(conf, "\nmp0:") && !strings.HasPrefix(conf, "mp0:")
-	if len(missing) == 0 && !needMount {
+	needDataMount := n.DataDir != "" && !hasMountPoint(conf, 0)
+	needSharedMount := n.SharedDir != "" && !hasMountPoint(conf, 1)
+	if len(missing) == 0 && !needDataMount && !needSharedMount {
 		return nil // already configured (resumed activity)
 	}
 	if err := e.PCT.Stop(ctx, n.CTID); err != nil {
@@ -102,16 +126,23 @@ func (e *Engine) configureCT(ctx context.Context, n plan.Node) error {
 			return err
 		}
 	}
-	if !needMount {
-		return nil
+	if needDataMount {
+		if err := e.FS.MkdirAll(n.DataDir, 0o711); err != nil {
+			return fmt.Errorf("create data dir: %w", err)
+		}
+		if err := e.addResource(state.KindDataDir, n.DataDir); err != nil {
+			return err
+		}
+		if err := e.PCT.SetMountPoint(ctx, n.CTID, 0, n.DataDir, k3s.LocalStoragePath); err != nil {
+			return err
+		}
 	}
-	if err := e.FS.MkdirAll(n.DataDir, 0o711); err != nil {
-		return fmt.Errorf("create data dir: %w", err)
+	if needSharedMount {
+		if err := e.PCT.SetMountPoint(ctx, n.CTID, 1, n.SharedDir, k3s.SharedStoragePath); err != nil {
+			return err
+		}
 	}
-	if err := e.addResource(state.KindDataDir, n.DataDir); err != nil {
-		return err
-	}
-	return e.PCT.SetMountPoint(ctx, n.CTID, 0, n.DataDir, k3s.LocalStoragePath)
+	return nil
 }
 
 func (e *Engine) startCT(ctx context.Context, n plan.Node) error {
@@ -441,5 +472,19 @@ func (e *Engine) kubeconfig(ctx context.Context) error {
 		return err
 	}
 	e.logf("kubeconfig written to %s (mode 0600)", path)
+	return nil
+}
+
+// sharedStorage applies the local-shared-provisioner and its StorageClass
+// when spec.shared_data is enabled. Re-applying is a no-op (kubectl apply
+// is idempotent), so this runs on every finalize, not just the first.
+func (e *Engine) sharedStorage(ctx context.Context) error {
+	if !e.Plan.Spec.Shared.Enabled {
+		return nil
+	}
+	if _, err := e.PCT.ExecStdin(ctx, e.bootstrap().CTID, k3s.SharedStorageManifest, k3s.BinaryPath, "kubectl", "apply", "-f", "-"); err != nil {
+		return fmt.Errorf("apply local-shared StorageClass: %w", err)
+	}
+	e.logf("local-shared StorageClass applied (provisioner in namespace local-path-storage)")
 	return nil
 }

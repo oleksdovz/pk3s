@@ -1,0 +1,11 @@
+# Deploys the local-shared-provisioner and its StorageClass in one shot:
+#
+#   kubectl apply -k examples/manifests/local-shared/
+#
+# pvc-test.yaml is left out on purpose - it is a one-off test manifest, not
+# part of the deploy, and depends on the StorageClass already existing.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - provisioner.yaml
+  - storageclass.yaml

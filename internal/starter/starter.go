@@ -283,6 +283,18 @@ func Render(s spec.ClusterSpec, inv *pve.Inventory, o Options) string {
 	}
 	w.blank()
 
+	w.line("# ONE host directory bind-mounted at /k3s-shared in every container (same")
+	w.line("# directory everywhere). Backs the local-shared StorageClass, applied")
+	w.line("# automatically: PVCs on it can be mounted ReadWriteMany from any node.")
+	w.line("shared_data:")
+	w.line("  enabled: %v", s.Shared.Enabled)
+	if s.Shared.HostPath != "" {
+		w.line("  host_path: %s", q(s.Shared.HostPath))
+	} else {
+		w.line("  # host_path: /data/k3s-shared")
+	}
+	w.blank()
+
 	w.line("os:")
 	w.line("  nfs_client: %v   # install nfs-common; host loads nfs/nfsv4", s.OS.NFSClient)
 	w.line("  # extra_packages: [htop, jq]")

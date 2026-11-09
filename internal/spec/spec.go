@@ -112,6 +112,16 @@ type PersistentData struct {
 	HostPath string `yaml:"host_path,omitempty"`
 }
 
+// SharedData optionally bind-mounts ONE host directory into every
+// container at the same path (k3s.SharedStoragePath), backing the
+// local-shared StorageClass: unlike PersistentData, every node gets the
+// identical directory, so PVCs on it can be mounted from any node.
+type SharedData struct {
+	Enabled bool `yaml:"enabled"`
+	// HostPath is the single directory bind-mounted into every container.
+	HostPath string `yaml:"host_path,omitempty"`
+}
+
 // Access options for the containers.
 type Access struct {
 	// SSHPublicKeyFile is injected into root's authorized_keys. No root
@@ -162,6 +172,7 @@ type ClusterSpec struct {
 	Security       Security       `yaml:"security"`
 	Host           Host           `yaml:"host"`
 	Persistent     PersistentData `yaml:"persistent_data"`
+	Shared         SharedData     `yaml:"shared_data"`
 	Access         Access         `yaml:"access"`
 	OS             OS             `yaml:"os"`
 	OnBoot         bool           `yaml:"onboot"`

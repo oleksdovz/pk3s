@@ -9,10 +9,11 @@ deploys only after you confirm. Progress is saved after every step, so a failed
 or interrupted deployment can be resumed.
 
 > **Status: early release (v0.1.x).** Tested live on Proxmox VE 9.2:
-> create, scaling agents up and down, servers 1→3, and remote mode from
-> macOS. Not yet tested live: k3s upgrades, CPU/RAM/disk changes, persistent
-> data, recovery from the state ConfigMap, the Windows client and the
-> unprivileged profile. Use a disposable host first: see
+> create, scaling agents up and down, servers 1→3, remote mode from macOS,
+> and the `shared_data` ReadWriteMany StorageClass. Not yet tested live: k3s
+> upgrades, CPU/RAM/disk changes, PVCs through `persistent_data`'s
+> `local-path` StorageClass, recovery from the state ConfigMap, the Windows
+> client and the unprivileged profile. Use a disposable host first: see
 > [docs/TESTING.md](docs/TESTING.md).
 
 > **k3s in LXC is not supported upstream.** Neither k3s nor Proxmox document
@@ -28,7 +29,7 @@ or interrupted deployment can be resumed.
 - Conflict checks for CT IDs, hostnames, IPs (existing guests, host bridges, ping), storage capacity, templates and bridges.
 - No `curl | sh`. The k3s binary is downloaded from GitHub releases for a pinned version and verified against the release SHA-256 file.
 - Separate server and agent join tokens. Secure `K10…` tokens are delivered in files with mode 0600 and never appear in logs or command lines.
-- Optional host-directory bind mount for local-path volumes. NFS client installed by default.
+- Optional host-directory bind mount for local-path volumes (`persistent_data`, per node) or a ReadWriteMany `local-shared` StorageClass backed by one directory shared by every node (`shared_data`). NFS client installed by default.
 - Resource ledger and Proxmox tags (`pk3s`, `pk3s-<cluster>`). `destroy` only removes containers pk3s created that still carry the tag. Data directories are never deleted.
 
 ## Requirements
@@ -183,7 +184,7 @@ The following are rejected by validation:
 
 - downgrades, or skipping a minor version;
 - removing servers (not supported yet);
-- changing the security profile, k3s networking, disabled components, persistent data, the hostname prefix, or the network of an existing node.
+- changing the security profile, k3s networking, disabled components, persistent or shared data, the hostname prefix, or the network of an existing node.
 
 A channel such as `stable` never upgrades a running cluster; set an exact
 version to upgrade. An interrupted update continues with `pk3s resume <name>`.
@@ -230,7 +231,10 @@ security:
   acknowledge_privileged_risk: true
 persistent_data:
   enabled: true
-  host_path: /data/k3s-storage  # -> /data/k3s-storage/lab/<hostname>
+  host_path: /data/k3s-storage  # -> /data/k3s-storage/lab/<hostname>, local-path StorageClass
+shared_data:
+  enabled: true
+  host_path: /data/k3s-shared   # same directory on every node, local-shared StorageClass (RWX)
 os:
   nfs_client: true
 onboot: true

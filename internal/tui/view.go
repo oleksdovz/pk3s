@@ -233,13 +233,15 @@ func (m Model) viewWizard(w int) string {
 	var left strings.Builder
 	left.WriteString(stTitle.Render("Steps") + "\n")
 	for i, s := range m.sections {
-		line := fmt.Sprintf("%s %2d %s", sevMark(m.sectionFindings(i)), i+1, s.title)
-		if i == m.secIdx {
-			if m.focus == 0 {
-				line = stSel.Render(fmt.Sprintf("  %2d %-18s", i+1, s.title))
-			} else {
-				line = stTitle.Render("▸") + line[1:]
-			}
+		suffix := fmt.Sprintf(" %2d %s", i+1, s.title)
+		var line string
+		switch {
+		case i == m.secIdx && m.focus == 0:
+			line = stSel.Render(fmt.Sprintf("  %2d %-18s", i+1, s.title))
+		case i == m.secIdx:
+			line = stTitle.Render("▸") + suffix
+		default:
+			line = sevMark(m.sectionFindings(i)) + suffix
 		}
 		left.WriteString(line + "\n")
 	}

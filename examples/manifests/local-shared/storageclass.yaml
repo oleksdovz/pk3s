@@ -1,0 +1,26 @@
+# StorageClass for provisioner.yaml's dedicated local-shared-provisioner.
+#
+# It expects the SAME host directory bind-mounted at /k3s-shared in every
+# container (unlike `local-path`, which gives each node its own private
+# directory - see ../../08-local-path-storage.yaml):
+#
+#   /data/k3s-shared  ->  CT main1:/k3s-shared   (same host directory)
+#   /data/k3s-shared  ->  CT node1:/k3s-shared   (same host directory)
+#   /data/k3s-shared  ->  CT node2:/k3s-shared   (same host directory)
+#
+# pk3s does not create this bind mount automatically yet. Until it does,
+# create it by hand on the Proxmox host before testing:
+#
+#   mkdir -p /data/k3s-shared
+#   pct set <ctid> -mp0 /data/k3s-shared,mp=/k3s-shared   # repeat for every container
+#   pct reboot <ctid>                                     # mount only takes effect after restart
+#
+# Apply provisioner.yaml first, then this file, then test with
+# pvc-test.yaml in this folder.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-shared
+provisioner: rancher.io/local-shared
+volumeBindingMode: Immediate
+reclaimPolicy: Delete

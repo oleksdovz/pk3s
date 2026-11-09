@@ -104,6 +104,9 @@ func (a *App) recoverState(ctx context.Context, name string, inv *pve.Inventory)
 		if r.DataDir != "" {
 			st.AddResource(state.Resource{Kind: state.KindDataDir, ID: r.DataDir, Node: inv.Node})
 		}
+		if r.SharedDir != "" {
+			st.AddResource(state.Resource{Kind: state.KindDataDir, ID: r.SharedDir, Node: inv.Node})
+		}
 	}
 	if err := spec.Save(store.Path("spec.yaml"), s); err != nil {
 		return false, err

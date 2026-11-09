@@ -56,5 +56,8 @@ func (e *Engine) finalize(ctx context.Context) error {
 	if err := e.kubeconfig(ctx); err != nil {
 		return err
 	}
+	if err := e.sharedStorage(ctx); err != nil {
+		return err
+	}
 	return e.publishState(ctx)
 }

@@ -41,6 +41,7 @@ func Update(in plan.UpdateInput) Findings {
 		{"k3s.cluster_cidr", cur.K3s.ClusterCIDR, tgt.K3s.ClusterCIDR},
 		{"k3s.service_cidr", cur.K3s.ServiceCIDR, tgt.K3s.ServiceCIDR},
 		{"persistent_data", cur.Persistent, tgt.Persistent},
+		{"shared_data", cur.Shared, tgt.Shared},
 	}
 	for _, c := range immutable {
 		if !reflect.DeepEqual(norm(c.a), norm(c.b)) {

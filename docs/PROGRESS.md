@@ -41,6 +41,9 @@ unless stated explicitly.
 - (done) `<name>-kubeconfig.yaml` written to the current directory after create/update (also fetched in remote mode).
 - (done) GitHub Actions: `CI` (gofmt, vet, `go test -race`, cross-compile) on push/PR; every green push to `main` is tagged with the next patch version and released with 6 binaries + SHA256SUMS (first releases: v0.1.0, v0.1.1 on 2026-11-06).
 - (done) Examples 01–08 + `examples/manifests/local-path-pvc-test.yaml`; all links in README/docs/examples checked, `go test ./examples/` validates every spec.
+- (done, live) `local-shared` StorageClass manifests (`examples/manifests/local-shared/`) hand-tested on `hp`: provisioner up, PVC bound, per-PVC subdirectory under `/k3s-shared` shared by pods on different nodes.
+- (done) `shared_data` spec section wired into the engine (bind mount at `/k3s-shared` on every container, `local-shared` StorageClass applied automatically during finalize) + example 09-shared-storage.yaml.
+- (done, live) `shared_data` end-to-end through pk3s itself on `hp` (cluster `hp-k3s`, 1 server + 3 agents, also with `persistent_data` enabled simultaneously): `pk3s apply` created `/data/k3s-shared` (self-healing permissions via an explicit `Chmod`, since `MkdirAll`'s requested mode is only applied to directories it creates and is masked by umask - same reason `OSFS.WriteFile` already re-chmods), bind-mounted it at `/k3s-shared` in all 4 containers, and applied `local-shared` + its provisioner during finalize. PVC bound RWX; two pods forced onto different nodes (`hp-k3s-node1`, `hp-k3s-node3`) both read and wrote the same file.
 - Not yet tested live:
   - rolling k3s upgrade (start from a cluster on v1.36.x), CPU/RAM/disk change;
   - state ConfigMap kube-system/pk3s-state recovery when host state is missing;

@@ -49,13 +49,20 @@ type FS interface {
 	MkdirAll(path string, perm os.FileMode) error
 	WriteFile(path string, data []byte, perm os.FileMode) error
 	Remove(path string) error
+	Chmod(path string, perm os.FileMode) error
 }
 
 // OSFS is the real filesystem.
 type OSFS struct{}
 
-// MkdirAll implements FS.
+// MkdirAll implements FS. Like os.WriteFile below, the requested perm is
+// only applied to directories MkdirAll itself creates: the process umask
+// can still mask bits off, and an already-existing directory keeps
+// whatever mode it had. Call Chmod afterwards where the exact mode matters.
 func (OSFS) MkdirAll(p string, perm os.FileMode) error { return os.MkdirAll(p, perm) }
+
+// Chmod implements FS.
+func (OSFS) Chmod(p string, perm os.FileMode) error { return os.Chmod(p, perm) }
 
 // WriteFile implements FS.
 func (OSFS) WriteFile(p string, d []byte, perm os.FileMode) error {

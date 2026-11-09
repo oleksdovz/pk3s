@@ -1,0 +1,40 @@
+# ONE host directory bind-mounted at /k3s-shared in every container (the
+# same directory everywhere, unlike persistent_data's per-node directories
+# in 08-local-path-storage.yaml):
+#   /data/k3s-shared  ->  CT 5900:/k3s-shared   (main1, same host directory)
+#   /data/k3s-shared  ->  CT 5901:/k3s-shared   (node1, same host directory)
+#   /data/k3s-shared  ->  CT 5902:/k3s-shared   (node2, same host directory)
+#
+# pk3s applies the local-shared StorageClass automatically (a dedicated
+# local-path-provisioner in namespace local-path-storage, using upstream's
+# "shared filesystem" mode: no node affinity on the PVs it creates, so a
+# PVC can be mounted ReadWriteMany from any node). See
+# manifests/local-shared/ for what that provisioner looks like.
+#
+# The data survives `pk3s destroy` (directories are never deleted
+# automatically) but is NOT included in vzdump backups of the containers:
+# back up /data/k3s-shared separately.
+#
+# Test it with manifests/local-shared/pvc-test.yaml.
+name: pool
+servers: 1
+agents: 2
+ctid_start: 5900
+template:
+  storage: local
+  name: debian-13-standard_13.1-2_amd64.tar.zst
+rootfs_storage: x-data
+server_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+agent_resources: {cores: 2, memory_mib: 4096, disk_gib: 30}
+network:
+  bridge: vmbr0
+  first_ip: 192.168.0.60
+  prefix: 24
+  gateway: 192.168.0.1
+  dns: [192.168.0.2]
+security:
+  profile: privileged
+  acknowledge_privileged_risk: true
+shared_data:
+  enabled: true
+  host_path: /data/k3s-shared

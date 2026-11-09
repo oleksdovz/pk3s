@@ -22,6 +22,7 @@ type NodeRecord struct {
 	Gateway   string         `json:"gateway"`
 	DNS       []string       `json:"dns,omitempty"`
 	DataDir   string         `json:"data_dir,omitempty"`
+	SharedDir string         `json:"shared_dir,omitempty"`
 	Resources spec.Resources `json:"resources"`
 	Startup   string         `json:"startup"`
 	OnBoot    bool           `json:"onboot"`
@@ -39,7 +40,7 @@ func (p *Plan) Records() []NodeRecord {
 func (p *Plan) record(n Node) NodeRecord {
 	return NodeRecord{
 		Key: n.Key, Hostname: n.Hostname, Role: n.Role, CTID: n.CTID, IP: n.IP,
-		Prefix: n.Prefix, Gateway: n.Gateway, DNS: n.DNS, DataDir: n.DataDir,
+		Prefix: n.Prefix, Gateway: n.Gateway, DNS: n.DNS, DataDir: n.DataDir, SharedDir: n.SharedDir,
 		Resources: n.Resources, Startup: p.StartupFor(n), OnBoot: p.Spec.OnBoot,
 	}
 }
@@ -47,7 +48,7 @@ func (p *Plan) record(n Node) NodeRecord {
 func nodeFromRecord(r NodeRecord) Node {
 	return Node{
 		Key: r.Key, Hostname: r.Hostname, Role: r.Role, CTID: r.CTID, IP: r.IP,
-		Prefix: r.Prefix, Gateway: r.Gateway, DNS: r.DNS, DataDir: r.DataDir, Resources: r.Resources,
+		Prefix: r.Prefix, Gateway: r.Gateway, DNS: r.DNS, DataDir: r.DataDir, SharedDir: r.SharedDir, Resources: r.Resources,
 	}
 }
 
@@ -153,12 +154,20 @@ func BuildUpdate(in UpdateInput, inv *pve.Inventory) (*Plan, error) {
 	// 4. New nodes: provision in parallel, join servers one at a time,
 	// agents in parallel.
 	p.Steps = append(p.Steps, nodeSteps(p, newNodes, in.OpID+"/")...)
+	sharedDirAnnounced := false
 	for _, n := range newNodes {
 		p.Changes = append(p.Changes, fmt.Sprintf("add %s %s (CT %d, %s)", n.Role, n.Hostname, n.CTID, n.IP))
 		if n.DataDir != "" {
 			p.HostChanges = append(p.HostChanges, HostChange{
 				Description: fmt.Sprintf("Create data directory for %s (bind-mounted at %s)", n.Hostname, k3s.LocalStoragePath),
 				Path:        n.DataDir,
+			})
+		}
+		if n.SharedDir != "" && !sharedDirAnnounced {
+			sharedDirAnnounced = true
+			p.HostChanges = append(p.HostChanges, HostChange{
+				Description: fmt.Sprintf("Create shared directory, bind-mounted at %s in every container", k3s.SharedStoragePath),
+				Path:        n.SharedDir,
 			})
 		}
 	}

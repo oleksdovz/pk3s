@@ -31,6 +31,9 @@ type Node struct {
 	Resources  spec.Resources
 	// DataDir is the host bind-mount source (empty if persistent data is off).
 	DataDir string
+	// SharedDir is the host bind-mount source for shared_data (empty if
+	// off); identical across all nodes.
+	SharedDir string
 }
 
 // HostChange is a modification to the Proxmox host outside of containers.
@@ -192,7 +195,7 @@ func BuildLayout(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string, layo
 		if r, ok := recs[key]; ok {
 			// Existing node: identity and network never change.
 			p.Existing[key] = true
-			n.CTID, n.IP, n.Prefix, n.Gateway, n.DNS, n.DataDir = r.CTID, r.IP, r.Prefix, r.Gateway, r.DNS, r.DataDir
+			n.CTID, n.IP, n.Prefix, n.Gateway, n.DNS, n.DataDir, n.SharedDir = r.CTID, r.IP, r.Prefix, r.Gateway, r.DNS, r.DataDir, r.SharedDir
 			p.Nodes = append(p.Nodes, n)
 			continue
 		}
@@ -229,6 +232,9 @@ func BuildLayout(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string, layo
 		if s.Persistent.Enabled && s.Persistent.HostPath != "" {
 			n.DataDir = path.Join(s.Persistent.HostPath, s.Name, n.Hostname)
 		}
+		if s.Shared.Enabled && s.Shared.HostPath != "" {
+			n.SharedDir = s.Shared.HostPath
+		}
 		p.Nodes = append(p.Nodes, n)
 	}
 	for k := range overrideKeys(s) {
@@ -252,6 +258,12 @@ func BuildLayout(s spec.ClusterSpec, inv *pve.Inventory, k3sVersion string, layo
 				Path:        n.DataDir,
 			})
 		}
+	}
+	if s.Shared.Enabled && s.Shared.HostPath != "" {
+		p.HostChanges = append(p.HostChanges, HostChange{
+			Description: fmt.Sprintf("Create shared directory, bind-mounted at %s in every container", k3s.SharedStoragePath),
+			Path:        s.Shared.HostPath,
+		})
 	}
 	if !inv.HasTemplate(s.Template.VolID()) {
 		p.HostChanges = append(p.HostChanges, HostChange{

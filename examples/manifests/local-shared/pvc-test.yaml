@@ -1,0 +1,74 @@
+# One PVC shared by two pods forced onto different nodes, proving that
+# /k3s-shared is really the same data everywhere (not per-node storage like
+# ../local-path-pvc-test.yaml). Needs at least 2 nodes able to run pods.
+#
+#   kubectl apply -k .            # deploy the provisioner + StorageClass, once per cluster
+#   kubectl apply -f pvc-test.yaml
+#   kubectl get pvc shared-data                 # see the generated PV name
+#   ls /data/k3s-shared/                         # pvc-<uid>_default_shared-data/hello.txt
+#   kubectl exec writer-a -- cat /data/hello.txt # both writers' lines
+#   kubectl exec writer-b -- cat /data/hello.txt # same content
+#
+# Clean up with: kubectl delete -f pvc-test.yaml
+# (reclaim policy is Delete, so the PVC's subdirectory under
+# /data/k3s-shared is removed too; the provisioner deployment is unaffected).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data
+spec:
+  storageClassName: local-shared
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: writer-a
+  labels:
+    app: shared-writer
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels: {app: shared-writer}
+          topologyKey: kubernetes.io/hostname
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "echo hello from $(hostname) at $(date) >> /data/hello.txt; sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: shared-data
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: writer-b
+  labels:
+    app: shared-writer
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels: {app: shared-writer}
+          topologyKey: kubernetes.io/hostname
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["sh", "-c", "echo hello from $(hostname) at $(date) >> /data/hello.txt; sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: shared-data

@@ -200,6 +200,22 @@ func Spec(s spec.ClusterSpec, inv *pve.Inventory) Findings {
 		add(Info, "persistent_data", "bind mounts are excluded from vzdump backups and prevent CT migration; back up the host directory separately")
 	}
 
+	// Shared data.
+	if s.Shared.Enabled {
+		hp := s.Shared.HostPath
+		switch {
+		case hp == "" || !path.IsAbs(hp):
+			add(Error, "shared_data.host_path", "must be an absolute path")
+		case path.Clean(hp) == "/" || strings.HasPrefix(path.Clean(hp), "/etc") || strings.HasPrefix(path.Clean(hp), "/proc") ||
+			strings.HasPrefix(path.Clean(hp), "/sys") || strings.HasPrefix(path.Clean(hp), "/dev"):
+			add(Error, "shared_data.host_path", "refusing system path %s", hp)
+		case s.Persistent.Enabled && path.Clean(hp) == path.Clean(s.Persistent.HostPath):
+			add(Error, "shared_data.host_path", "must differ from persistent_data.host_path")
+		}
+		add(Info, "shared_data", "bind mounts are excluded from vzdump backups and prevent CT migration; back up the host directory separately")
+		add(Info, "shared_data", "applies the local-shared StorageClass (ReadWriteMany, no node affinity) via its own provisioner in namespace local-path-storage")
+	}
+
 	// OS packages. Names end up in a shell script, so they are restricted
 	// to the Debian package name grammar.
 	for _, pkg := range s.OS.ExtraPackages {
